@@ -156,6 +156,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+*.env
 
 # Spyder project settings
 .spyderproject
@@ -213,6 +214,15 @@ tempCodeRunnerFile.py
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local AI & Knowledge Base
+knowledge/
+*.db
+*.csv
+*.json
+
+# Mac Specifics
+.DS_Store
 
 # Streamlit
 .streamlit/secrets.toml
