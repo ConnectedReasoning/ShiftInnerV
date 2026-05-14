@@ -17,7 +17,7 @@ report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_
 os.makedirs(report_dir, exist_ok=True)
 
 # ── Load the composition ──────────────────────────────────────────────────────
-pairs_path = os.path.join(os.path.dirname(__file__), "pairs.yaml")
+pairs_path = os.path.join(os.path.dirname(__file__), "pairs_cisco_ai_reallocation.yaml")
 with open(pairs_path, "r") as f:
     composition = yaml.safe_load(f)
 

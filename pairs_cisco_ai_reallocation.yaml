@@ -1,0 +1,41 @@
+# Pair: Cisco / AI Reallocation
+# Situation: Cisco announced job cuts May 2026 to redirect capital into AI.
+# This is a proxy for the broader enterprise capital reallocation from
+# legacy networking infrastructure to AI infrastructure spending.
+
+pairs:
+  - ticker1: CSCO
+    ticker2: BOTZ
+    label: "Legacy Enterprise Networking vs AI Infrastructure"
+    relationship: >
+      Enterprise IT budgets are finite. When companies like Cisco cut headcount
+      in legacy networking divisions to fund AI initiatives, capital flows away
+      from traditional networking hardware and software toward AI infrastructure
+      plays. CSCO represents the incumbent being disrupted; BOTZ represents the
+      destination of that capital. Murphy framework: capital flow rotation from
+      old infrastructure to new infrastructure creates a detectable decoupling
+      between the legacy incumbent and the beneficiary basket.
+      The thesis is NOT that CSCO and BOTZ are naturally tethered — they aren't.
+      The thesis is that accelerating AI capex announcements should create
+      episodic divergence: BOTZ rising as CSCO cuts, or CSCO rising on AI
+      pivot credibility while BOTZ lags on valuation concerns.
+    lead: BOTZ
+    lag_days: 15
+    cointegrated: unknown
+    sentinel_goals:
+      - correlation_decay
+    leading_indicators:
+      - Enterprise IT capex guidance from Cisco, Dell, HPE quarterly earnings
+      - Hyperscaler AI capex announcements (Microsoft, Google, Amazon, Meta)
+      - US corporate layoff filings (WARN Act notices) in tech sector
+      - AI infrastructure ETF fund flows (BOTZ, AIQ, SMH inflows vs outflows)
+      - Cerebras, CoreWeave, Groq IPO filings and pricing — sentiment proxy
+    notes: >
+      Catalyst event: May 14 2026 — Cisco reported job cuts explicitly to fund
+      AI investment. Stock up ~15% on the day. This is the canonical signal
+      event for this pair. The Dow approached 50000 on the same day, suggesting
+      broad risk-on context — isolate Cisco-specific moves from market beta.
+      Watch for similar announcements from HPE, Juniper, Arista as the
+      networking-to-AI rotation broadens. BOTZ has significant Japan exposure
+      (Keyence, Fanuc, ABB) which introduces FX sensitivity — USD/JPY moves
+      may create noise in the pair unrelated to the AI reallocation thesis.

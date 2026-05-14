@@ -30,6 +30,20 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
 
     indicators_str = "\n    - ".join(leading_indicators) if leading_indicators else "None specified."
 
+    # ── Generate pair-specific search queries from indicators ─────────────────
+    # Use the first two indicators as search seed terms combined with tickers,
+    # then add a date-scoped query for the episode window.
+    if leading_indicators:
+        seed1 = leading_indicators[0]
+        seed2 = leading_indicators[1] if len(leading_indicators) > 1 else ticker1
+        search_query_1 = f"{ticker1} {ticker2} 2024"
+        search_query_2 = f"{seed1} 2024"
+        search_query_3 = f"{seed2} {ticker1} supply chain 2024"
+    else:
+        search_query_1 = f"{ticker1} {ticker2} 2024"
+        search_query_2 = f"{ticker1} {ticker2} decoupling market"
+        search_query_3 = f"{ticker1} {ticker2} structural shift"
+
     # ── Task 1 — The Math ─────────────────────────────────────────────────────
     correlation_audit = Task(
         description=f"""Run the correlation_decay_analyzer tool with
@@ -59,9 +73,9 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
 
     Search for context around each episode onset date the Scout found.
     Use these plain text search queries — one at a time, no JSON:
-    - {ticker1} {ticker2} rare earth 2024
-    - China rare earth export controls January 2024
-    - rare earth semiconductor supply 2024
+    - {search_query_1}
+    - {search_query_2}
+    - {search_query_3}
 
     Also check these known leading indicators:
     - {indicators_str}
@@ -87,31 +101,35 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
     Structural tether for this pair:
     {relationship}
 
-    KEY FACTS FROM THE SCOUT'S TOOL (use these directly):
-    - Johansen cointegration result: NOT cointegrated at 95% CI
-      (trace stat below critical value — structural tether is UNCERTAIN)
-    - Half-life of spread mean reversion: ~1021 days
-      (this is VERY slow — a half-life above 250 days weakens the signal
-      because the spread takes years to mean-revert, making pairs trading
-      impractical at normal holding periods)
-    - Rolling window used: 120 days (hit the maximum clamp)
-    - One distinct decoupling episode: onset 2024-01-31, 72 days duration,
-      worst correlation -0.728, -2.5 std devs below baseline mean
+    The Scout's correlation report is in your context. Extract these facts
+    directly from it before producing your assessment:
+    - Johansen cointegration result (cointegrated YES/NO and confidence level)
+    - Half-life of spread mean reversion in days
+    - Rolling window used
+    - Number of distinct decoupling episodes
+    - Worst episode: onset date, duration, worst correlation, worst deviation
+
+    Use these rules when interpreting the facts:
+    - NOT cointegrated = structural tether is UNCERTAIN = weakens signal
+    - Half-life above 250 days = spread reverts very slowly = weakens signal
+    - Half-life below 60 days = spread reverts quickly = strengthens signal
+    - Only one episode = insufficient evidence of persistence
+    - Rolling window hit 120-day clamp = half-life too long to be useful
 
     Produce a signal quality assessment:
-    - Is the single episode statistically meaningful or volatile-period noise?
+    - Is each episode statistically meaningful or volatile-period noise?
     - Does the macro context explain the pattern or leave it unexplained?
-    - Does the NOT cointegrated result strengthen or weaken the signal?
-    - Does the 1021-day half-life support or undermine a pairs trade thesis?
+    - Does the cointegration result strengthen or weaken the signal?
+    - Does the half-life support or undermine a pairs trade thesis?
     - Is this worth monitoring as a persistent structural shift?
     - Rate the signal: Strong / Moderate / Weak / Noise
 
     Be specific about what would need to be true for this to become
     a Strong signal worth acting on in Phase 2.""",
         expected_output=f"""Signal quality rating (Strong/Moderate/Weak/Noise)
-    for {label} with clear justification referencing the cointegration result,
-    half-life, and episode data. Specific conditions required to elevate
-    the signal to Strong.""",
+    for {label} with clear justification referencing the actual cointegration
+    result, half-life, and episode data extracted from the Scout's report.
+    Specific conditions required to elevate the signal to Strong.""",
         agent=skeptic_analyst,
         context=[correlation_audit, anomaly_investigation]
     )
