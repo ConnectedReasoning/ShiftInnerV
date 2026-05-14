@@ -29,7 +29,7 @@ quant_scout = Agent(
     tools=[correlation_tool],
     verbose=True,
     allow_delegation=False,
-    max_iter=8,
+    max_iter=3,
     max_rpm=15
 )
 
