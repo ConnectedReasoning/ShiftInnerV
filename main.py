@@ -38,6 +38,8 @@ def extract_report_text(raw: str) -> str:
     match = re.search(r"(=== CORRELATION DECAY REPORT ===.*)", raw, re.DOTALL)
     if match:
         text = match.group(1).strip()
+        # Decode escaped newlines (JSON text values use \n literals)
+        text = text.replace('\\n', '\n')
         # Strip trailing JSON artefacts: closing quotes, braces, brackets
         text = re.sub(r'[\"\'\}\]]+\s*$', '', text).strip()
         return text
@@ -109,7 +111,7 @@ def extract_search_findings(raw: str) -> str:
             return None
 
         prose = find_prose(blob)
-        if prose:
+        if prose and "=== CORRELATION DECAY REPORT ===" not in prose:
             return prose
 
         # If the JSON contains a search_query, note what was searched
