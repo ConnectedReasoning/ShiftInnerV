@@ -26,50 +26,112 @@ pairs = composition["pairs"]
 
 def extract_report_text(raw: str) -> str:
     """
-    llama3.1 8B often wraps tool output in a JSON blob instead of returning
-    plain text. This function recovers the actual report text from either:
-      - Plain text starting with === CORRELATION DECAY REPORT ===
-      - JSON with a string parameter containing the report text
-    Falls back to the raw string if neither pattern matches.
+    Recover the actual === CORRELATION DECAY REPORT === text from the Scout's
+    output regardless of whether llama3.1 returned it as plain text or wrapped
+    it in a JSON blob. Strips trailing JSON closing characters ("}} etc).
     """
     # Already plain text
     if raw.strip().startswith("=== CORRELATION DECAY REPORT ==="):
         return raw.strip()
 
-    # Try to find the report header anywhere in the string
+    # Find the report header anywhere in the string
     match = re.search(r"(=== CORRELATION DECAY REPORT ===.*)", raw, re.DOTALL)
     if match:
-        return match.group(1).strip()
+        text = match.group(1).strip()
+        # Strip trailing JSON artefacts: closing quotes, braces, brackets
+        text = re.sub(r'[\"\'\}\]]+\s*$', '', text).strip()
+        return text
 
-    # Try to parse as JSON and extract any string value containing the report
+    # Try JSON parsing — walk all string values for the report header
     try:
-        # Handle single-quoted JSON by converting to double quotes
-        normalized = raw.replace("'", '"')
-        blob = json.loads(normalized)
-        # Walk all string values in the JSON looking for the report header
+        blob = json.loads(raw)
+
         def find_report(obj):
             if isinstance(obj, str) and "=== CORRELATION DECAY REPORT ===" in obj:
                 idx = obj.index("=== CORRELATION DECAY REPORT ===")
                 return obj[idx:].strip()
             if isinstance(obj, dict):
                 for v in obj.values():
-                    result = find_report(v)
-                    if result:
-                        return result
+                    r = find_report(v)
+                    if r:
+                        return r
             if isinstance(obj, list):
                 for item in obj:
-                    result = find_report(item)
-                    if result:
-                        return result
+                    r = find_report(item)
+                    if r:
+                        return r
             return None
+
         found = find_report(blob)
         if found:
             return found
     except Exception:
         pass
 
-    # Fall back to raw — better than nothing
     return raw.strip()
+
+
+def extract_search_findings(raw: str) -> str:
+    """
+    The Researcher agent often wraps its final answer in JSON instead of
+    returning plain prose. This function attempts to recover meaningful text:
+    - If the raw output is already prose, return it
+    - If it's JSON, extract any 'text', 'output', or 'result' string values
+    - If Serper results are embedded, summarise the titles/snippets found
+    Falls back to raw if nothing useful is found.
+    """
+    stripped = raw.strip()
+
+    # Already plain prose — no JSON brace at start
+    if not stripped.startswith("{") and not stripped.startswith("["):
+        return stripped
+
+    try:
+        blob = json.loads(stripped)
+
+        # Look for prose text in common parameter keys
+        prose_keys = {"text", "output", "result", "findings", "summary", "answer"}
+
+        def find_prose(obj):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if k.lower() in prose_keys and isinstance(v, str) and len(v) > 40:
+                        return v.strip()
+                for v in obj.values():
+                    r = find_prose(v)
+                    if r:
+                        return r
+            if isinstance(obj, list):
+                for item in obj:
+                    r = find_prose(item)
+                    if r:
+                        return r
+            return None
+
+        prose = find_prose(blob)
+        if prose:
+            return prose
+
+        # If the JSON contains a search_query, note what was searched
+        def find_query(obj):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if "query" in k.lower() and isinstance(v, str):
+                        return v
+                for v in obj.values():
+                    r = find_query(v)
+                    if r:
+                        return r
+            return None
+
+        query = find_query(blob)
+        if query:
+            return f"[Researcher described search for: {query} — no results extracted]"
+
+    except Exception:
+        pass
+
+    return stripped
 
 
 # ── Run the crew for each pair ────────────────────────────────────────────────
@@ -95,7 +157,6 @@ if __name__ == "__main__":
         ticker2 = pair["ticker2"]
         label   = pair["label"]
 
-        # Skip pair if either ticker failed to download
         if ticker1 in failed or ticker2 in failed:
             print(f"Skipping {label} — missing data for one or both tickers.\n")
             continue
@@ -116,16 +177,17 @@ if __name__ == "__main__":
 
         result = crew.kickoff()
 
-        # ── Build appendix — clean Scout output if JSON-wrapped ──────────────
+        # ── Build appendix — clean outputs per agent role ────────────────────
         appendix_lines = []
         for task in [correlation_audit, anomaly_investigation, divergence_report]:
             if hasattr(task, "output") and task.output:
-                raw = task.output.raw or ""
+                raw  = task.output.raw or ""
                 role = task.agent.role
 
-                # Apply report extraction only to the Scout
                 if role == "Lead Quantitative Scout":
                     cleaned = extract_report_text(raw)
+                elif role == "Macro Context Researcher":
+                    cleaned = extract_search_findings(raw)
                 else:
                     cleaned = raw
 
