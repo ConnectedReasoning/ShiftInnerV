@@ -1,5 +1,25 @@
 from crewai import Task
 
+# ── ReAct few-shot example injected into Researcher task ─────────────────────
+# Based on the ReAct pattern from "Prompt Engineering for LLMs" (Berryman &
+# Ziegler, O'Reilly). The 8B llama3.1 model needs an explicit Thought →
+# Action → Observation example to reliably execute tools rather than
+# describe them. Without this, the model reasons correctly but outputs
+# a plan instead of acting.
+REACT_EXAMPLE = """
+Here is an example of how you must work. Follow this pattern exactly:
+
+Thought: I need to find what happened with Cisco job cuts and AI spending in early 2024.
+Action: Use the search_the_internet_with_serper tool.
+Action Input: Cisco job cuts AI investment 2024
+Observation: [tool returns results]
+Thought: The results mention Cisco restructuring to fund AI. I now have context for the episode.
+Final Answer: In early 2024, Cisco announced restructuring plans...
+
+Now follow the same Thought → Action → Observation pattern for this task.
+Always actually call the tool. Never describe a call — execute it.
+"""
+
 
 def build_tasks(pair: dict, agents: tuple) -> tuple:
     """
@@ -31,8 +51,6 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
     indicators_str = "\n    - ".join(leading_indicators) if leading_indicators else "None specified."
 
     # ── Generate pair-specific search queries from indicators ─────────────────
-    # Use the first two indicators as search seed terms combined with tickers,
-    # then add a date-scoped query for the episode window.
     if leading_indicators:
         seed1 = leading_indicators[0]
         seed2 = leading_indicators[1] if len(leading_indicators) > 1 else ticker1
@@ -63,32 +81,37 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
 
     # ── Task 2 — The Why ─────────────────────────────────────────────────────
     anomaly_investigation = Task(
-        description=f"""The Scout has identified decoupling episodes for
-    {label} ({ticker1} / {ticker2}). Search for macro context.
+        description=f"""You are researching macro context for decoupling
+    episodes in {label} ({ticker1} / {ticker2}).
 
     Known structural relationship:
     {relationship}
 
     Expected lead ticker: {lead} (lag ~{lag_days} days)
 
-    Search for context around each episode onset date the Scout found.
-    Use these plain text search queries — one at a time, no JSON:
+    Step 1 — Think first. Write out what you are looking for and why
+    before taking any action. Consider what events around the episode
+    onset date could explain a correlation breakdown for this pair.
+
+    Step 2 — Execute searches one at a time using the search tool.
+    Use these plain text queries in order:
     - {search_query_1}
     - {search_query_2}
     - {search_query_3}
-
-    Also check these known leading indicators:
+    {REACT_EXAMPLE}
+    Known leading indicators to inform your search:
     - {indicators_str}
 
     Additional context:
     {notes}
 
-    Report what you find tied to specific dates.
-    If search results are empty or irrelevant, say so plainly.
-    Do not invent explanations. Do not wrap queries in JSON or brackets.""",
-        expected_output=f"""Specific news events or macro context tied to each
-    flagged episode onset date for {label}. Plain text summary of findings.
-    Explicit statement if nothing relevant was found.""",
+    Step 3 — Report what you found tied to specific dates.
+    If results are empty or irrelevant, say so plainly.
+    Do not invent explanations.""",
+        expected_output=f"""Plain text summary of specific news events or
+    macro context tied to the flagged episode onset dates for {label}.
+    Include source names and dates where found.
+    Explicit statement if nothing relevant was found for any episode.""",
         agent=forensic_researcher,
         context=[correlation_audit]
     )

@@ -2,6 +2,7 @@ import os
 import re
 import json
 import yaml
+import argparse
 from dotenv import load_dotenv
 from datetime import date
 from crewai import Crew, Process
@@ -16,8 +17,21 @@ data_dir   = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/Shift
 report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
 os.makedirs(report_dir, exist_ok=True)
 
+# ── Parse arguments ───────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser(description="ShiftInnerV Shadow Audit")
+parser.add_argument(
+    "--pairs",
+    type=str,
+    default=None,
+    help="Path to a pairs yaml file (default: pairs.yaml in project root)"
+)
+args = parser.parse_args()
+
 # ── Load the composition ──────────────────────────────────────────────────────
-pairs_path = os.path.join(os.path.dirname(__file__), "pairs_cisco_ai_reallocation.yaml")
+if args.pairs:
+    pairs_path = os.path.expanduser(args.pairs)
+else:
+    pairs_path = os.path.join(os.path.dirname(__file__), "pairs.yaml")
 with open(pairs_path, "r") as f:
     composition = yaml.safe_load(f)
 
@@ -139,7 +153,7 @@ def extract_search_findings(raw: str) -> str:
 # ── Run the crew for each pair ────────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"ShiftInnerV — Shadow Audit — {date.today()}")
-    print(f"Loaded {len(pairs)} pair(s) from pairs.yaml\n")
+    print(f"Loaded {len(pairs)} pair(s) from {os.path.basename(pairs_path)}\n")
 
     # ── Ensure data is present and fresh before running agents ───────────────
     tickers = tickers_from_pairs(pairs)
@@ -197,11 +211,14 @@ if __name__ == "__main__":
                 appendix_lines.append(f"```\n{cleaned}\n```\n")
 
         # ── Write report ──────────────────────────────────────────────────────
-        safe_label = f"{ticker1}_{ticker2}"
-        report_path = os.path.join(
-            report_dir,
-            f"divergence_report_{safe_label}_{date.today()}.md"
-        )
+        # Build filename from yaml label + tickers + timestamp
+        from datetime import datetime
+        safe_label = label.lower()
+        safe_label = "".join(c if c.isalnum() or c in "-_ " else "" for c in safe_label)
+        safe_label = safe_label.strip().replace(" ", "_")
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        filename = f"{safe_label}_{ticker1}_{ticker2}_{timestamp}.md"
+        report_path = os.path.join(report_dir, filename)
 
         with open(report_path, "w") as f:
             f.write(f"# ShiftInnerV Divergence Report\n")

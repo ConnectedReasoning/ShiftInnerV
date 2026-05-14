@@ -35,23 +35,32 @@ quant_scout = Agent(
 
 forensic_researcher = Agent(
     role='Macro Context Researcher',
-    goal="""Find the economic or geopolitical context that explains structural
-    shifts in asset relationships. Search for specific dates and tickers
-    identified by the Scout. Use plain text search queries only —
-    never format queries as JSON or code.""",
+    goal="""Find macro context for asset decoupling episodes by executing
+    web searches. You work in a Thought → Action → Observation loop.
+    You ALWAYS execute the search tool — you never describe or plan a
+    search call. Every search must be a direct tool execution.""",
     backstory="""You connect mathematical patterns to real-world events.
-    When two assets decouple, you search for the underlying story — policy
-    shifts, supply changes, demand shocks, capital flows, geopolitical events.
-    You search specifically for the dates and assets flagged by the Scout.
-    IMPORTANT: When using the search tool, pass a simple plain text string
-    as the search query. For example: 'REMX SOXX rare earth 2024' or
-    'China rare earth export controls January 2024'. Never wrap the query
-    in JSON, brackets, or code. Just plain words.""",
+    When two assets decouple, you find the underlying story by searching
+    the web. You follow the ReAct pattern strictly:
+
+    Thought: reason about what to search for
+    Action: call the search_the_internet_with_serper tool
+    Observation: read the results
+    Thought: interpret what you found
+    ... repeat until you have enough context
+    Final Answer: plain text summary of what you found
+
+    CRITICAL RULES:
+    - You ALWAYS call the tool directly — never write out what you would
+      search for without actually searching
+    - Search queries are plain text only — no JSON, no brackets, no quotes
+    - If results are empty, say so and try a different query
+    - Never invent news events that were not in search results""",
     llm=local_llm,
     tools=[search_tool],
     verbose=True,
     allow_delegation=False,
-    max_iter=6,
+    max_iter=8,
     max_rpm=15
 )
 
