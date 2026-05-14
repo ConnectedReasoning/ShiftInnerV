@@ -1,0 +1,40 @@
+# InnerShiftV — Pair Composition File
+#
+# This is the score. The engine (agents, tools, tasks) reads this file
+# and processes whatever pairs are defined here — no source code changes needed.
+#
+# Schema per pair:
+#   ticker1, ticker2       — the two securities to monitor
+#   label                  — human-readable name for reports
+#   relationship           — why these should be tethered (Murphy causal logic)
+#   lead                   — which ticker leads the other, if known
+#   lag_days               — expected propagation lag in trading days (0 = simultaneous)
+#   cointegrated           — confirmed by Johansen test (true/false/unknown)
+#   sentinel_goals         — which InnerShiftV goals this pair serves
+#   leading_indicators     — upstream data sources that move before price
+#   notes                  — anything else the Researcher agent should know
+
+pairs:
+  - ticker1: REMX
+    ticker2: SOXX
+    label: "Rare Earth Miners vs Semiconductor ETF"
+    relationship: >
+      Rare earth elements (REEs) are critical inputs for semiconductor
+      manufacturing. REMX tracks miners of REEs; SOXX tracks semiconductor
+      producers. Supply constraints or export restrictions on REEs propagate
+      into chip production costs and availability. Murphy framework: commodity
+      supply leads industrial equity pricing.
+    lead: REMX
+    lag_days: 30
+    cointegrated: unknown
+    sentinel_goals:
+      - correlation_decay
+    leading_indicators:
+      - China rare earth export quota announcements
+      - Port throughput data for REE shipments (Lianyungang, Tianjin)
+      - COMEX/LME rare earth spot prices
+      - US Geological Survey critical minerals reports
+    notes: >
+      June-July 2024 decoupling confirmed historically — China announced
+      rare earth export controls. This is the canonical signal event for
+      this pair. Use it as the benchmark when evaluating future episodes.

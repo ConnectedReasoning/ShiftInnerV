@@ -3,8 +3,8 @@ import time
 import yfinance as yf
 from dotenv import load_dotenv
 
-load_dotenv(os.path.expanduser("~/.innershiftv_env"))
-data_dir = os.getenv("DATA_STORAGE_PATH", "/Volumes/Elessar/InnerShiftV_Data")
+load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
+data_dir = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
 
 # Layer 1: Macro Signal Basket
 MACRO_TICKERS = {
