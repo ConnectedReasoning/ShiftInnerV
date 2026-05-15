@@ -153,7 +153,7 @@ def extract_search_findings(raw: str) -> str:
 # ── Run the crew for each pair ────────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"ShiftInnerV — Shadow Audit — {date.today()}")
-    print(f"Loaded {len(pairs)} pair(s) from {os.path.basename(pairs_path)}\n")
+    print(f"Loaded {len(pairs)} pair(s) from pairs.yaml\n")
 
     # ── Ensure data is present and fresh before running agents ───────────────
     tickers = tickers_from_pairs(pairs)
@@ -191,7 +191,14 @@ if __name__ == "__main__":
             verbose=False
         )
 
-        result = crew.kickoff()
+        # ── Run crew with error isolation ────────────────────────────────────
+        crew_error = None
+        try:
+            result = crew.kickoff()
+        except Exception as e:
+            crew_error = str(e)
+            print(f"  WARNING: Crew failed for {label} — {e}")
+            print(f"  Writing error report and continuing...\n")
 
         # ── Build appendix — clean outputs per agent role ────────────────────
         appendix_lines = []
@@ -211,7 +218,6 @@ if __name__ == "__main__":
                 appendix_lines.append(f"```\n{cleaned}\n```\n")
 
         # ── Write report ──────────────────────────────────────────────────────
-        # Build filename from yaml label + tickers + timestamp
         from datetime import datetime
         safe_label = label.lower()
         safe_label = "".join(c if c.isalnum() or c in "-_ " else "" for c in safe_label)
@@ -226,7 +232,11 @@ if __name__ == "__main__":
             f.write(f"**Date:** {date.today()}\n\n")
             f.write("---\n\n")
             f.write("## Final Verdict\n\n")
-            f.write(str(result.raw))
+            if crew_error:
+                f.write(f"**ERROR:** Crew failed to complete — {crew_error}\n\n")
+                f.write("Partial tool outputs may be available in the appendix below.\n")
+            else:
+                f.write(str(result.raw))
             f.write("\n\n---\n\n")
             f.write("## Appendix: Tool Execution Log\n\n")
             f.write("\n".join(appendix_lines))
