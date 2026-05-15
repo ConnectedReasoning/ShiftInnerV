@@ -7,17 +7,25 @@ from crewai import Task
 # describe them. Without this, the model reasons correctly but outputs
 # a plan instead of acting.
 REACT_EXAMPLE = """
-Here is an example of how you must work. Follow this pattern exactly:
+You must use this EXACT format for every search. No JSON. No brackets.
 
-Thought: I need to find what happened with Cisco job cuts and AI spending in early 2024.
-Action: Use the search_the_internet_with_serper tool.
+Question: What macro events explain the decoupling episode?
+Thought: I need to search for news around the episode onset date.
+Action: search_the_internet_with_serper
 Action Input: Cisco job cuts AI investment 2024
-Observation: [tool returns results]
-Thought: The results mention Cisco restructuring to fund AI. I now have context for the episode.
-Final Answer: In early 2024, Cisco announced restructuring plans...
+Observation: [The tool returns search results here]
+Thought: I found relevant context. Now I will search for more.
+Action: search_the_internet_with_serper
+Action Input: enterprise IT spending shift AI 2024
+Observation: [The tool returns more results here]
+Thought: I now have enough context to answer.
+Final Answer: In early 2024, Cisco announced restructuring plans to fund AI...
 
-Now follow the same Thought → Action → Observation pattern for this task.
-Always actually call the tool. Never describe a call — execute it.
+CRITICAL:
+- Action must be exactly: search_the_internet_with_serper
+- Action Input must be plain text only — no JSON, no quotes, no brackets
+- You MUST actually use the tool — do not write [tool returns results], wait for the real result
+- Repeat the Action/Action Input/Observation cycle for each query
 """
 
 
