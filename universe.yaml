@@ -1,0 +1,226 @@
+# ShiftInnerV — Ticker Universe
+#
+# Curated list of liquid, well-covered tickers for pair generation.
+# All tickers are ETFs or large-cap stocks with sufficient daily volume
+# for yfinance data to be reliable (5+ years of history).
+#
+# Used by generate_pairs.py to produce composition yaml files.
+# Organized by category to enable themed pair generation.
+
+universe:
+
+  # ── Broad Market ──────────────────────────────────────────────────────────
+  broad_market:
+    - SPY    # S&P 500
+    - QQQ    # Nasdaq 100
+    - IWM    # Russell 2000 small cap
+    - DIA    # Dow Jones Industrial
+    - VOO    # Vanguard S&P 500
+    - VTI    # Vanguard Total Market
+    - EEM    # Emerging Markets
+    - EFA    # EAFE developed ex-US
+    - VEA    # Vanguard developed markets
+    - FXI    # China large cap
+
+  # ── US Sectors (SPDR) ─────────────────────────────────────────────────────
+  sectors:
+    - XLK    # Technology
+    - XLF    # Financials
+    - XLE    # Energy
+    - XLV    # Health Care
+    - XLI    # Industrials
+    - XLY    # Consumer Discretionary
+    - XLP    # Consumer Staples
+    - XLB    # Materials
+    - XLU    # Utilities
+    - XLRE   # Real Estate
+    - XLC    # Communications
+
+  # ── Semiconductors & Tech Hardware ────────────────────────────────────────
+  semiconductors:
+    - SOXX   # Semiconductor ETF (iShares)
+    - SMH    # Semiconductor ETF (VanEck)
+    - NVDA   # Nvidia
+    - TSM    # TSMC
+    - AMAT   # Applied Materials
+    - ASML   # ASML Holding
+    - INTC   # Intel
+    - AMD    # Advanced Micro Devices
+    - QCOM   # Qualcomm
+    - MU     # Micron
+
+  # ── Critical Minerals & Mining ────────────────────────────────────────────
+  miners:
+    - REMX   # Rare Earth & Strategic Metals
+    - GDX    # Gold Miners
+    - GDXJ   # Junior Gold Miners
+    - SIL    # Silver Miners
+    - COPX   # Copper Miners
+    - PICK   # Diversified Metals & Mining
+    - LIT    # Lithium & Battery Tech
+    - BATT   # Electric Vehicles & Battery
+    - MP     # MP Materials (rare earth)
+    - FCX    # Freeport-McMoRan (copper)
+
+  # ── Energy ────────────────────────────────────────────────────────────────
+  energy:
+    - USO    # WTI Crude Oil
+    - BNO    # Brent Crude Oil
+    - UNG    # Natural Gas
+    - XOP    # Oil & Gas E&P ETF
+    - OIH    # Oil Services ETF
+    - XOM    # ExxonMobil
+    - CVX    # Chevron
+    - COP    # ConocoPhillips
+    - SLB    # Schlumberger
+    - HAL    # Halliburton
+
+  # ── Precious Metals & Commodities ─────────────────────────────────────────
+  commodities:
+    - GLD    # Gold
+    - SLV    # Silver
+    - IAU    # Gold (iShares)
+    - PPLT   # Platinum
+    - PALL   # Palladium
+    - CPER   # Copper
+    - DBC    # Diversified Commodities
+    - DBA    # Agriculture
+    - CORN   # Corn
+    - WEAT   # Wheat
+    - SOYB   # Soybeans
+    - JO     # Coffee
+    - NIB    # Cocoa
+    - SGG    # Sugar
+
+  # ── Fixed Income & Rates ──────────────────────────────────────────────────
+  fixed_income:
+    - TLT    # 20+ Year Treasury
+    - IEF    # 7-10 Year Treasury
+    - SHY    # 1-3 Year Treasury
+    - TIP    # TIPS (inflation protected)
+    - HYG    # High Yield Corporate
+    - LQD    # Investment Grade Corporate
+    - EMB    # Emerging Market Bonds
+    - MBB    # Mortgage-Backed Securities
+    - BND    # Vanguard Total Bond
+    - AGG    # iShares Core US Aggregate
+
+  # ── Volatility & Macro ────────────────────────────────────────────────────
+  volatility_macro:
+    - VXX    # VIX Short-Term Futures
+    - UVXY   # Ultra VIX
+    - SVXY   # Short VIX
+    - VIXY   # VIX Futures
+
+  # ── Currencies & Dollar ───────────────────────────────────────────────────
+  currencies:
+    - UUP    # US Dollar Index (bullish)
+    - UDN    # US Dollar Index (bearish)
+    - FXE    # Euro
+    - FXY    # Japanese Yen
+    - FXB    # British Pound
+    - FXA    # Australian Dollar
+    - FXC    # Canadian Dollar
+    - FXF    # Swiss Franc
+    - CYB    # Chinese Yuan
+
+  # ── Shipping & Transportation ─────────────────────────────────────────────
+  shipping:
+    - ZIM    # ZIM Integrated Shipping
+    - MATX   # Matson (Pacific shipping)
+    - SBLK   # Star Bulk Carriers
+    - GOGL   # Golden Ocean Group
+    - DSX    # Diana Shipping
+    - BDRY   # Breakwave Dry Bulk Shipping ETF
+    - BOAT   # Amplify Shipping ETF
+
+  # ── Aerospace & Defense ───────────────────────────────────────────────────
+  defense:
+    - ITA    # Aerospace & Defense ETF
+    - XAR    # SPDR Aerospace & Defense
+    - LMT    # Lockheed Martin
+    - RTX    # Raytheon Technologies
+    - NOC    # Northrop Grumman
+    - BA     # Boeing
+    - GD     # General Dynamics
+    - HII    # Huntington Ingalls
+
+  # ── Financials ────────────────────────────────────────────────────────────
+  financials:
+    - KBE    # Bank ETF
+    - KRE    # Regional Bank ETF
+    - IAI    # Broker-Dealer ETF
+    - JPM    # JPMorgan Chase
+    - BAC    # Bank of America
+    - GS     # Goldman Sachs
+    - MS     # Morgan Stanley
+    - BRK-B  # Berkshire Hathaway
+
+  # ── Healthcare & Biotech ──────────────────────────────────────────────────
+  healthcare:
+    - IBB    # Biotech ETF
+    - XBI    # SPDR Biotech ETF
+    - PJP    # Pharma ETF
+    - JNJ    # Johnson & Johnson
+    - PFE    # Pfizer
+    - MRNA   # Moderna
+    - ABBV   # AbbVie
+    - UNH    # UnitedHealth
+
+  # ── AI & Cloud Infrastructure ─────────────────────────────────────────────
+  ai_cloud:
+    - BOTZ   # AI & Robotics ETF
+    - AIQ    # AI ETF (Global X)
+    - ROBT   # Robotics & AI ETF
+    - MSFT   # Microsoft
+    - GOOGL  # Alphabet
+    - META   # Meta Platforms
+    - AMZN   # Amazon
+    - CRM    # Salesforce
+    - NOW    # ServiceNow
+    - PLTR   # Palantir
+
+  # ── Electric Vehicles & Clean Energy ──────────────────────────────────────
+  clean_energy:
+    - ICLN   # Clean Energy ETF
+    - QCLN   # Clean Edge Clean Energy
+    - TAN    # Solar ETF
+    - FAN    # Wind Energy ETF
+    - TSLA   # Tesla
+    - NIO    # NIO
+    - RIVN   # Rivian
+    - CHPT   # ChargePoint
+    - ENPH   # Enphase Energy
+    - SEDG   # SolarEdge
+
+  # ── Real Estate ───────────────────────────────────────────────────────────
+  real_estate:
+    - VNQ    # Vanguard REIT
+    - IYR    # iShares REIT
+    - REM    # Mortgage REIT
+    - AMT    # American Tower
+    - PLD    # Prologis
+    - SPG    # Simon Property Group
+
+  # ── Agriculture & Food ────────────────────────────────────────────────────
+  agriculture:
+    - MOO    # Agribusiness ETF
+    - SOIL   # Fertilizers & Soil ETF
+    - ADM    # Archer-Daniels-Midland
+    - BG     # Bunge Global
+    - MOS    # Mosaic (fertilizers)
+    - NTR    # Nutrien (fertilizers)
+    - DE     # Deere & Company
+
+  # ── China & Emerging Market Themes ───────────────────────────────────────
+  china_em:
+    - KWEB   # China Internet ETF
+    - CQQQ   # China Technology ETF
+    - ASHR   # China A-Shares
+    - BABA   # Alibaba
+    - JD     # JD.com
+    - PDD    # Pinduoduo/Temu
+    - EWJ    # Japan ETF
+    - EWZ    # Brazil ETF
+    - EWY    # South Korea ETF
+    - EWT    # Taiwan ETF
