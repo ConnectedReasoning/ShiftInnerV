@@ -180,16 +180,17 @@ if __name__ == "__main__":
         print(f"Running Truth Squad: {label} ({ticker1} / {ticker2})\n")
 
         # Fresh agents per pair — correlation tool locked to this pair's tickers
-        quant_scout, forensic_researcher, skeptic_analyst = make_crew(ticker1, ticker2)
+        lookback_years = pair.get("lookback_years", 5)
+        quant_scout, signal_mathematician = make_crew(ticker1, ticker2, lookback_years)
 
-        correlation_audit, anomaly_investigation, divergence_report = build_tasks(
+        correlation_audit, quant_assessment = build_tasks(
             pair=pair,
-            agents=(quant_scout, forensic_researcher, skeptic_analyst)
+            agents=(quant_scout, signal_mathematician)
         )
 
         crew = Crew(
-            agents=[quant_scout, forensic_researcher, skeptic_analyst],
-            tasks=[correlation_audit, anomaly_investigation, divergence_report],
+            agents=[quant_scout, signal_mathematician],
+            tasks=[correlation_audit, quant_assessment],
             process=Process.sequential,
             verbose=False
         )
@@ -205,15 +206,13 @@ if __name__ == "__main__":
 
         # ── Build appendix — clean outputs per agent role ────────────────────
         appendix_lines = []
-        for task in [correlation_audit, anomaly_investigation, divergence_report]:
+        for task in [correlation_audit, quant_assessment]:
             if hasattr(task, "output") and task.output:
                 raw  = task.output.raw or ""
                 role = task.agent.role
 
                 if role == "Lead Quantitative Scout":
                     cleaned = extract_report_text(raw)
-                elif role == "Macro Context Researcher":
-                    cleaned = extract_search_findings(raw)
                 else:
                     cleaned = raw
 

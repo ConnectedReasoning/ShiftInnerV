@@ -4,14 +4,16 @@ ShiftInnerV — Layer 1 Monitor
 
 Always-on lightweight watcher. No LLM, no agents, no Ollama.
 Runs rolling correlation across all pairs in the compositions folder,
-logs anomalies to SQLite, and optionally triggers the full crew.
+logs anomalies to SQLite, and writes yaml files for anomalies.
 
 Usage:
-    python monitor.py                    # run once and exit
-    python monitor.py --loop             # run continuously every 30 minutes
-    python monitor.py --loop --interval 900   # every 15 minutes
-    python monitor.py --summary          # print today's anomaly log and exit
-    python monitor.py --screen pairs.yaml  # screen a yaml file, stats only
+    python monitor.py                          # run once and exit
+    python monitor.py --loop                   # run continuously every 30 minutes
+    python monitor.py --loop --interval 900    # every 15 minutes
+    python monitor.py --summary                # print today's anomaly log and exit
+    python monitor.py --screen pairs.yaml      # screen a yaml file, stats only
+    python monitor.py --screen pairs.yaml --workers 8   # parallel screening
+    python monitor.py --quiet                  # only print anomalies
 """
 
 import os
@@ -25,6 +27,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, date
 from dotenv import load_dotenv
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from data_manager import ensure_data
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
@@ -32,6 +35,7 @@ load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 data_dir   = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
 report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
 db_path    = os.path.join(data_dir, "anomalies.db")
+
 
 # ── Database setup ────────────────────────────────────────────────────────────
 
@@ -64,12 +68,14 @@ def init_db():
             label        TEXT,
             cointegrated TEXT,
             trace_stat   REAL,
-            crit_val     REAL,
+            crit_val_90  REAL,
+            crit_val_95  REAL,
             half_life    REAL,
             window       INTEGER,
             episodes     INTEGER,
             worst_corr   REAL,
             worst_dev    REAL,
+            snr          REAL,
             rating       TEXT
         )
     """)
@@ -79,27 +85,27 @@ def init_db():
 
 # ── Core math — no LLM, no agents ────────────────────────────────────────────
 
-def load_csv(ticker: str) -> pd.Series:
+def load_csv(ticker: str, lookback_years: int = 5) -> pd.Series:
     path = os.path.join(data_dir, f"{ticker.lower()}_daily.csv")
     if not os.path.exists(path):
         return None
     df = pd.read_csv(path, index_col=0)
     if "Close" not in df.columns:
         return None
-    return df["Close"].dropna()
+    s = df["Close"].dropna()
+    if lookback_years < 5:
+        cutoff = (pd.Timestamp.today() - pd.DateOffset(years=lookback_years)).strftime("%Y-%m-%d")
+        s = s[s.index >= cutoff]
+    return s
 
 
-def compute_half_life(spread: pd.Series) -> float:
-    """OLS regression of delta_spread on lagged_spread."""
+def compute_half_life(spread: pd.Series):
     try:
-        spread_lagged = spread.shift(1)
-        delta_spread  = spread.diff()
-        valid = pd.concat([delta_spread, spread_lagged], axis=1).dropna()
-        valid.columns = ["delta", "lagged"]
         from statsmodels.tools import add_constant
         from statsmodels.regression.linear_model import OLS
-        model = OLS(valid["delta"], add_constant(valid["lagged"])).fit()
-        lam = model.params["lagged"]
+        valid = pd.concat([spread.diff(), spread.shift(1)], axis=1).dropna()
+        valid.columns = ["delta", "lagged"]
+        lam = OLS(valid["delta"], add_constant(valid["lagged"])).fit().params["lagged"]
         if lam >= 0:
             return None
         return -np.log(2) / lam
@@ -107,25 +113,37 @@ def compute_half_life(spread: pd.Series) -> float:
         return None
 
 
+def compute_snr(log_p1: pd.Series, log_p2: pd.Series) -> float:
+    try:
+        from statsmodels.tools import add_constant
+        from statsmodels.regression.linear_model import OLS
+        fit = OLS(log_p1, add_constant(log_p2)).fit()
+        resid = pd.Series(fit.resid, index=log_p1.index)
+        trend = log_p1 - resid
+        var_s = float(np.var(resid, ddof=1))
+        var_n = float(np.var(trend, ddof=1))
+        return var_s / var_n if var_n > 1e-10 else float("inf")
+    except Exception:
+        return None
+
+
 def run_johansen(log_prices: pd.DataFrame):
-    """Returns (is_cointegrated, trace_stat, crit_val_95)."""
     try:
         from statsmodels.tsa.vector_ar.vecm import coint_johansen
-        result   = coint_johansen(log_prices, det_order=0, k_ar_diff=1)
-        trace    = result.lr1[0]
-        crit_val = result.cvt[0, 1]
-        return trace > crit_val, trace, crit_val
+        r = coint_johansen(log_prices, det_order=0, k_ar_diff=1)
+        trace = r.lr1[0]
+        c90   = r.cvt[0, 0]
+        c95   = r.cvt[0, 1]
+        return trace > c90, trace > c95, trace, c90, c95
     except Exception:
-        return None, None, None
+        return None, None, None, None, None
 
 
-def analyze_pair(ticker1: str, ticker2: str, label: str = "") -> dict:
-    """
-    Full statistical analysis of a pair. Returns a results dict.
-    No LLM involved.
-    """
-    s1 = load_csv(ticker1)
-    s2 = load_csv(ticker2)
+def analyze_pair(ticker1: str, ticker2: str, label: str = "",
+                 lookback_years: int = 5) -> dict:
+    """Full statistical analysis. No LLM."""
+    s1 = load_csv(ticker1, lookback_years)
+    s2 = load_csv(ticker2, lookback_years)
 
     if s1 is None or s2 is None:
         return {"error": f"Missing data for {ticker1} or {ticker2}"}
@@ -136,29 +154,21 @@ def analyze_pair(ticker1: str, ticker2: str, label: str = "") -> dict:
 
     c1 = s1.loc[shared]
     c2 = s2.loc[shared]
-
-    # Log prices for Johansen and half-life
     log_p1 = np.log(c1)
     log_p2 = np.log(c2)
     log_prices = pd.DataFrame({ticker1: log_p1, ticker2: log_p2}).dropna()
 
-    # Half-life
     spread = log_p1 - log_p2
     hl = compute_half_life(spread)
-    if hl is None:
-        window = 30
-    else:
-        window = int(np.clip(round(hl), 10, 120))
+    window = int(np.clip(round(hl), 10, 120)) if hl else 30
 
-    # Johansen
-    is_coint, trace_stat, crit_val = run_johansen(log_prices)
+    coint_90, coint_95, trace_stat, crit_90, crit_95 = run_johansen(log_prices)
+    snr = compute_snr(log_p1, log_p2)
 
-    # Rolling correlation
-    corr = c1.rolling(window).corr(c2)
+    corr      = c1.rolling(window).corr(c2)
     mean_corr = corr.mean()
     std_corr  = corr.std()
     threshold = mean_corr - 2 * std_corr
-
     decoupled = corr[corr < threshold].dropna()
 
     # Episode detection
@@ -172,55 +182,70 @@ def analyze_pair(ticker1: str, ticker2: str, label: str = "") -> dict:
             if corr_pos.get(curr, 0) - corr_pos.get(prev, 0) <= 1:
                 ep_labels.append(curr)
             else:
-                ep_corrs = decoupled.loc[ep_labels]
-                wc = ep_corrs.min()
-                episodes.append({
-                    "onset":    str(ep_start)[:10],
-                    "duration": len(ep_labels),
-                    "worst_corr": wc,
-                    "worst_dev":  (wc - mean_corr) / std_corr
-                })
+                wc = decoupled.loc[ep_labels].min()
+                episodes.append({"onset": str(ep_start)[:10],
+                                  "duration": len(ep_labels),
+                                  "worst_corr": wc,
+                                  "worst_dev": (wc - mean_corr) / std_corr})
                 ep_start = curr; ep_labels = [curr]
-
-        ep_corrs = decoupled.loc[ep_labels]
-        wc = ep_corrs.min()
-        episodes.append({
-            "onset":    str(ep_start)[:10],
-            "duration": len(ep_labels),
-            "worst_corr": wc,
-            "worst_dev":  (wc - mean_corr) / std_corr
-        })
+        wc = decoupled.loc[ep_labels].min()
+        episodes.append({"onset": str(ep_start)[:10],
+                          "duration": len(ep_labels),
+                          "worst_corr": wc,
+                          "worst_dev": (wc - mean_corr) / std_corr})
 
     worst = min(episodes, key=lambda e: e["worst_corr"]) if episodes else None
 
-    # Simple rating for screening
-    if is_coint and hl and hl < 60 and len(episodes) >= 2:
-        rating = "Strong candidate"
-    elif is_coint and hl and hl < 120:
-        rating = "Moderate candidate"
-    elif is_coint:
-        rating = "Weak candidate"
-    else:
-        rating = "Not cointegrated"
+    # Johansen trend — is cointegration strengthening or weakening?
+    trace_trend = compute_johansen_trend(log_prices)
+
+    # Continuous score
+    scoring = compute_score(
+        trace_stat=trace_stat or 0,
+        crit_90=crit_90 or 15.0,
+        crit_95=crit_95 or 18.0,
+        half_life=hl,
+        snr=snr,
+        episodes=len(episodes),
+        trace_trend=trace_trend,
+    )
 
     return {
-        "ticker1":      ticker1,
-        "ticker2":      ticker2,
-        "label":        label,
-        "date_range":   f"{shared[0]} to {shared[-1]}",
-        "cointegrated": is_coint,
-        "trace_stat":   trace_stat,
-        "crit_val":     crit_val,
-        "half_life":    hl,
-        "window":       window,
-        "mean_corr":    mean_corr,
-        "std_corr":     std_corr,
-        "threshold":    threshold,
-        "episodes":     len(episodes),
-        "worst":        worst,
-        "current_corr": float(corr.iloc[-1]) if not corr.empty else None,
-        "rating":       rating,
+        "ticker1":         ticker1,
+        "ticker2":         ticker2,
+        "label":           label,
+        "lookback_years":  lookback_years,
+        "cointegrated_90": coint_90,
+        "cointegrated_95": coint_95,
+        "trace_stat":      trace_stat,
+        "crit_90":         crit_90,
+        "crit_95":         crit_95,
+        "trace_trend":     trace_trend,
+        "half_life":       hl,
+        "window":          window,
+        "snr":             snr,
+        "mean_corr":       mean_corr,
+        "std_corr":        std_corr,
+        "threshold":       threshold,
+        "episodes":        len(episodes),
+        "worst":           worst,
+        "current_corr":    float(corr.iloc[-1]) if not corr.empty else None,
+        "score":           scoring["score"],
+        "score_breakdown": scoring,
+        "rating":          score_label(scoring["score"]),
+        "suspicious":      scoring["suspicious"],
     }
+
+
+# ── Worker for parallel screening ─────────────────────────────────────────────
+
+def _analyze_pair_worker(args):
+    """Top-level function so ProcessPoolExecutor can pickle it."""
+    ticker1, ticker2, label, lookback_years = args
+    try:
+        return analyze_pair(ticker1, ticker2, label, lookback_years)
+    except Exception as e:
+        return {"error": str(e), "ticker1": ticker1, "ticker2": ticker2}
 
 
 # ── Anomaly logging ───────────────────────────────────────────────────────────
@@ -234,17 +259,12 @@ def log_anomaly(result: dict):
          deviation, half_life, window, cointegrated)
         VALUES (?,?,?,?,?,?,?,?,?,?,?)
     """, (
-        datetime.now().isoformat(),
-        str(date.today()),
-        result["ticker1"],
-        result["ticker2"],
-        result.get("label", ""),
-        result.get("current_corr"),
-        result.get("threshold"),
-        worst.get("worst_dev"),
-        result.get("half_life"),
-        result.get("window"),
-        "YES" if result.get("cointegrated") else "NO"
+        datetime.now().isoformat(), str(date.today()),
+        result["ticker1"], result["ticker2"], result.get("label", ""),
+        result.get("current_corr"), result.get("threshold"),
+        worst.get("worst_dev"), result.get("half_life"), result.get("window"),
+        "YES" if result.get("cointegrated_95") else
+        "90%" if result.get("cointegrated_90") else "NO"
     ))
     conn.commit()
     conn.close()
@@ -252,35 +272,367 @@ def log_anomaly(result: dict):
 
 def log_screening(result: dict):
     worst = result.get("worst") or {}
+    sb    = result.get("score_breakdown") or {}
     conn  = sqlite3.connect(db_path)
     conn.execute("""
         INSERT INTO screening
         (timestamp, ticker1, ticker2, label, cointegrated, trace_stat,
-         crit_val, half_life, window, episodes, worst_corr, worst_dev, rating)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+         crit_val_90, crit_val_95, half_life, window, episodes,
+         worst_corr, worst_dev, snr, rating)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         datetime.now().isoformat(),
-        result["ticker1"],
-        result["ticker2"],
-        result.get("label", ""),
-        "YES" if result.get("cointegrated") else "NO",
-        result.get("trace_stat"),
-        result.get("crit_val"),
-        result.get("half_life"),
-        result.get("window"),
-        result.get("episodes", 0),
-        worst.get("worst_corr"),
-        worst.get("worst_dev"),
-        result.get("rating", "")
+        result["ticker1"], result["ticker2"], result.get("label", ""),
+        "95%" if result.get("cointegrated_95") else
+        "90%" if result.get("cointegrated_90") else "NO",
+        result.get("trace_stat"), result.get("crit_90"), result.get("crit_95"),
+        result.get("half_life"), result.get("window"), result.get("episodes", 0),
+        worst.get("worst_corr"), worst.get("worst_dev"),
+        result.get("snr"),
+        f"{result.get('score', 0):.1f} {result.get('rating', '')}"
     ))
     conn.commit()
     conn.close()
 
 
-# ── Modes ─────────────────────────────────────────────────────────────────────
+# ── Anomaly yaml writer ───────────────────────────────────────────────────────
 
-def run_monitor(compositions_dir: str, verbose: bool = True):
-    """Single monitoring pass across all compositions."""
+def compute_score(trace_stat: float, crit_90: float, crit_95: float,
+                  half_life: float, snr: float, episodes: int,
+                  trace_trend: float = 0.0) -> dict:
+    """
+    Compute a continuous 0-100 pair quality score.
+
+    Components:
+      Cointegration score (40pts): trace/crit_95 ratio, capped at 1.5x
+      Half-life score     (25pts): optimal 10-30d, degrades to 0 at 120d
+      SNR score           (20pts): log-scaled, saturates above 10.0
+      Episode score       (10pts): 2 eps = 5pts, 3=7, 4=9, 5+=10
+      Trend score          (5pts): trace stat rising toward threshold
+
+    Returns dict with total score and component breakdown.
+    """
+    # Hard disqualifier — half-life above tradeable horizon
+    if half_life is not None and half_life > 120:
+        ratio = (trace_stat / crit_95) if (crit_95 and crit_95 > 0) else 0.0
+        return {
+            "score":        0.0,
+            "coint_score":  0.0,
+            "hl_score":     0.0,
+            "snr_score":    0.0,
+            "ep_score":     0.0,
+            "trend_score":  0.0,
+            "trace_ratio":  round(ratio, 3),
+            "suspicious":   False,
+            "disqualified": f"hl={half_life:.0f}d>120",
+        }
+
+    # Cointegration component — core signal
+    if crit_95 and crit_95 > 0:
+        ratio = trace_stat / crit_95
+    else:
+        ratio = 0.0
+
+    # Interpolate across CI levels for finer granularity
+    if crit_90 and crit_90 > 0:
+        ratio_90 = trace_stat / crit_90
+    else:
+        ratio_90 = ratio
+
+    # Score: linear up to threshold, bonus for exceeding it
+    if ratio >= 1.0:
+        coint_score = 40.0  # full marks — cointegrated at 95%
+    elif ratio_90 >= 1.0:
+        # Passes 90% CI but not 95% — interpolate between 30 and 40
+        # based on where trace_stat sits between crit_90 and crit_95
+        span = crit_95 - crit_90
+        frac = (trace_stat - crit_90) / span if span > 0 else 0.0
+        coint_score = 30.0 + max(0.0, min(1.0, frac)) * 10.0
+    else:
+        coint_score = min(28.0, ratio_90 * 28.0)
+
+    # Half-life component — sweet spot is 10-30 days
+    if half_life is None or half_life <= 0:
+        hl_score = 0.0
+    elif half_life <= 10:
+        hl_score = 20.0  # very fast — slightly penalise (noise risk)
+    elif half_life <= 30:
+        hl_score = 25.0  # optimal
+    elif half_life <= 60:
+        hl_score = 25.0 - (half_life - 30) / 30 * 10.0
+    elif half_life <= 120:
+        hl_score = 15.0 - (half_life - 60) / 60 * 15.0
+    else:
+        hl_score = 0.0
+
+    # SNR component — log-scaled so extreme values don't dominate
+    import math
+    if snr is None or snr <= 0:
+        snr_score = 0.0
+    elif snr == float("inf") or snr > 1000:
+        snr_score = 5.0  # extreme SNR is suspicious — cap and flag
+    else:
+        snr_score = min(20.0, math.log1p(snr) / math.log1p(10.0) * 20.0)
+
+    # Episode component
+    ep_map = {0: 0, 1: 2, 2: 5, 3: 7, 4: 9}
+    ep_score = ep_map.get(episodes, 10.0)
+
+    # Trend component — is trace stat rising toward threshold?
+    trend_score = max(0.0, min(5.0, trace_trend * 25.0))
+
+    total = coint_score + hl_score + snr_score + ep_score + trend_score
+
+    # Suspicious SNR flag
+    suspicious = snr is not None and snr > 1000
+
+    return {
+        "score":        round(total, 1),
+        "coint_score":  round(coint_score, 1),
+        "hl_score":     round(hl_score, 1),
+        "snr_score":    round(snr_score, 1),
+        "ep_score":     round(ep_score, 1),
+        "trend_score":  round(trend_score, 1),
+        "trace_ratio":  round(ratio, 3),
+        "suspicious":   suspicious,
+    }
+
+
+def compute_johansen_trend(log_prices: pd.DataFrame,
+                           windows: list = None) -> float:
+    """
+    Compute the slope of Johansen trace stat across rolling sub-windows.
+    Returns a normalised slope: positive = trace rising toward threshold.
+    """
+    if windows is None:
+        windows = [90, 180, 270, 365]
+
+    n = len(log_prices)
+    stats = []
+    for w in windows:
+        if n < w + 10:
+            continue
+        sub = log_prices.iloc[-w:]
+        try:
+            from statsmodels.tsa.vector_ar.vecm import coint_johansen
+            r = coint_johansen(sub, det_order=0, k_ar_diff=1)
+            stats.append((w, r.lr1[0]))
+        except Exception:
+            continue
+
+    if len(stats) < 2:
+        return 0.0
+
+    # Simple slope: (latest - earliest) / crit_95 normalised
+    earliest = stats[0][1]
+    latest   = stats[-1][1]
+    # Positive if trace is increasing over time
+    slope = (latest - earliest) / max(abs(earliest), 1.0)
+    return float(np.clip(slope, -1.0, 1.0))
+
+
+def score_label(score: float) -> str:
+    if score >= 75:  return "★★★ PRIME"
+    if score >= 60:  return "★★  STRONG"
+    if score >= 45:  return "★   SOLID"
+    if score >= 30:  return "◆   WATCH"
+    if score >= 15:  return "·   WEAK"
+    return                   "    NOISE"
+
+
+def write_anomaly_yaml(flagged: list, compositions_dir: str) -> list:
+    """
+    For each flagged anomaly write a single-pair yaml into
+    compositions/anomalies/ ready to run with main.py --pairs.
+    Skips if a yaml already exists for this pair/lookback today.
+    """
+    anomaly_dir = os.path.join(compositions_dir, "anomalies")
+    os.makedirs(anomaly_dir, exist_ok=True)
+    today   = str(date.today())
+    written = []
+
+    for result in flagged:
+        t1       = result["ticker1"]
+        t2       = result["ticker2"]
+        label    = result.get("label", f"{t1} vs {t2}")
+        hl       = result.get("half_life")
+        eps      = result.get("episodes", 0)
+        curr     = result.get("current_corr")
+        thresh   = result.get("threshold")
+        worst    = result.get("worst") or {}
+        lookback = result.get("lookback_years", 1)
+
+        clean_label = label
+        for tag in ["[1yr]", "[3yr]", "[5yr]"]:
+            clean_label = clean_label.replace(tag, "").strip()
+
+        filename = f"anomaly_{t1}_{t2}_{lookback}yr_{today}.yaml"
+        filepath = os.path.join(anomaly_dir, filename)
+        if os.path.exists(filepath):
+            continue
+
+        coint_str  = "95%" if result.get("cointegrated_95") else \
+                     "90%" if result.get("cointegrated_90") else "no"
+        snr_str    = f"{result.get('snr', 0):.3f}" if result.get("snr") else "N/A"
+        hl_str     = f"{hl:.1f}" if hl else "N/A"
+        curr_str   = f"{curr:.3f}" if curr is not None else "N/A"
+        thresh_str = f"{thresh:.3f}" if thresh is not None else "N/A"
+        onset_str  = worst.get("onset", "unknown")
+        dur_str    = str(worst.get("duration", "unknown"))
+        wc_str     = f"{worst.get('worst_corr', 0):.3f}"
+        wd_str     = f"{worst.get('worst_dev', 0):.1f}"
+        rating     = result.get("rating", "unknown")
+
+        content = f"""# ShiftInnerV — Anomaly Investigation
+# Auto-generated by monitor.py on {today}
+# Pair flagged: current correlation {curr_str} below threshold {thresh_str}
+#
+# Statistical context:
+#   Rating:        {rating}
+#   Cointegrated:  {coint_str} (Johansen)
+#   SNR:           {snr_str}
+#   Half-life:     {hl_str} days
+#   Episodes:      {eps}
+#   Worst episode: onset {onset_str} | duration {dur_str}d | corr {wc_str} | dev {wd_str}σ
+
+pairs:
+  - ticker1: {t1}
+    ticker2: {t2}
+    label: "{clean_label} — Anomaly Investigation"
+    lookback_years: {lookback}
+    cointegrated: unknown
+"""
+        with open(filepath, "w") as f:
+            f.write(content)
+        written.append(filepath)
+        print(f"  📄 Anomaly yaml: {filename}")
+
+    return written
+
+
+# ── Screening — supports parallel workers ─────────────────────────────────────
+
+def run_screening(yaml_path: str, workers: int = 1, top_n: int = None,
+                  ratings_filter: list = None):
+    """
+    Screen a yaml file — pure math, no LLM.
+    workers > 1 enables parallel processing via ProcessPoolExecutor.
+    top_n: if set, only show top N results sorted by rating tier.
+    ratings_filter: if set, only show results matching these ratings.
+    """
+    with open(yaml_path) as f:
+        comp = yaml.safe_load(f)
+
+    pairs = comp.get("pairs", [])
+
+    # Auto-fetch missing tickers
+    tickers_needed = list(set(
+        t for p in pairs for t in [p["ticker1"], p["ticker2"]]
+        if not os.path.exists(os.path.join(data_dir, f"{t.lower()}_daily.csv"))
+    ))
+    if tickers_needed:
+        print(f"  Fetching {len(tickers_needed)} missing ticker(s)...")
+        ensure_data(tickers_needed, data_dir)
+        print()
+
+    print(f"\nScreening {len(pairs)} pair(s) from {os.path.basename(yaml_path)}")
+    if workers > 1:
+        print(f"  Parallel mode: {workers} workers")
+    print(f"\n{'Pair':<16} {'Score':>5} {'Ratio':>6} {'HL':>6} {'SNR':>6} "
+          f"{'Eps':>4} {'Trend':>6}  Rating")
+    print("-" * 80)
+
+    # Build worker args
+    work_args = [
+        (p["ticker1"], p["ticker2"],
+         p.get("label", f"{p['ticker1']}/{p['ticker2']}"),
+         p.get("lookback_years", 5))
+        for p in pairs
+    ]
+
+    results = []
+    if workers > 1:
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_analyze_pair_worker, a): a for a in work_args}
+            done = 0
+            for fut in as_completed(futures):
+                done += 1
+                result = fut.result()
+                results.append(result)
+                if done % 50 == 0:
+                    print(f"  ... {done}/{len(pairs)} screened")
+    else:
+        for args in work_args:
+            results.append(_analyze_pair_worker(args))
+
+    # Sort by score descending
+    results.sort(key=lambda r: r.get("score", 0), reverse=True)
+
+    displayed = 0
+    score_threshold = 15.0  # hide pure noise unless --all flag
+    for result in results:
+        if "error" in result:
+            continue
+
+        score = result.get("score", 0)
+        if ratings_filter and result.get("rating") not in ratings_filter:
+            continue
+        if not ratings_filter and score < score_threshold:
+            continue
+
+        t1     = result["ticker1"]
+        t2     = result["ticker2"]
+        ratio  = result.get("score_breakdown", {}).get("trace_ratio", 0)
+        hl     = f"{result['half_life']:.0f}d" if result.get("half_life") else "N/A"
+        snr    = result.get("snr", 0) or 0
+        snr_str= f"{min(snr, 9999):.1f}" if snr < 1000 else "HIGH*"
+        eps    = result.get("episodes", 0)
+        trend  = result.get("trace_trend", 0)
+        trend_str = f"+{trend:.2f}" if trend >= 0 else f"{trend:.2f}"
+        rating = result.get("rating", "")
+        flag   = "⚠" if result.get("suspicious") else " "
+
+        print(f"{t1}/{t2:<12} {score:>5.1f} {ratio:>6.3f} {hl:>6} "
+              f"{snr_str:>6} {eps:>4} {trend_str:>6}  {flag}{rating}")
+        log_screening(result)
+        displayed += 1
+
+        if top_n and displayed >= top_n:
+            break
+
+    # Summary bands
+    prime  = [r for r in results if r.get("score", 0) >= 75]
+    strong = [r for r in results if 60 <= r.get("score", 0) < 75]
+    solid  = [r for r in results if 45 <= r.get("score", 0) < 60]
+    watch  = [r for r in results if 30 <= r.get("score", 0) < 45]
+
+    print(f"\n{'─'*80}")
+    print(f"{'Pairs screened:':<25} {len(results):>6}")
+    print(f"{'★★★ PRIME  (≥75):':<25} {len(prime):>6}")
+    print(f"{'★★  STRONG (60-74):':<25} {len(strong):>6}")
+    print(f"{'★   SOLID  (45-59):':<25} {len(solid):>6}")
+    print(f"{'◆   WATCH  (30-44):':<25} {len(watch):>6}")
+
+    if prime:
+        print(f"\n{'─'*80}")
+        print("PRIME pairs (score ≥ 75):")
+        for r in prime:
+            sb   = r.get("score_breakdown", {})
+            hl_s = f"{r['half_life']:.0f}d" if r.get("half_life") else "N/A"
+            snr  = r.get("snr", 0) or 0
+            snr_s= f"{snr:.2f}" if snr < 1000 else "HIGH*"
+            trend= r.get("trace_trend", 0)
+            flag = " ⚠ SUSPICIOUS SNR" if r.get("suspicious") else ""
+            print(f"  {r['ticker1']}/{r['ticker2']:<10} "
+                  f"score={r['score']} "
+                  f"ratio={sb.get('trace_ratio', 0):.3f} "
+                  f"hl={hl_s} snr={snr_s} eps={r['episodes']} "
+                  f"trend={trend:+.2f}{flag}")
+
+
+# ── Monitoring pass ───────────────────────────────────────────────────────────
+
+def run_monitor(compositions_dir: str, verbose: bool = True, workers: int = 1):
     yaml_files = sorted(glob.glob(os.path.join(compositions_dir, "*.yaml")))
     if not yaml_files:
         print(f"No yaml files in {compositions_dir}")
@@ -289,7 +641,6 @@ def run_monitor(compositions_dir: str, verbose: bool = True):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     print(f"\n[{now}] Monitor pass — {len(yaml_files)} composition file(s)")
 
-    # ── Auto-fetch any missing tickers across all compositions ──────────────
     all_pairs = []
     for yaml_file in yaml_files:
         with open(yaml_file) as f:
@@ -305,107 +656,63 @@ def run_monitor(compositions_dir: str, verbose: bool = True):
         ensure_data(tickers_needed, data_dir)
         print()
 
+    work_args = [
+        (p["ticker1"], p["ticker2"],
+         p.get("label", f"{p['ticker1']}/{p['ticker2']}"),
+         p.get("lookback_years", 5))
+        for yaml_file in yaml_files
+        for p in yaml.safe_load(open(yaml_file)).get("pairs", [])
+    ]
+
+    if workers > 1:
+        results = []
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_analyze_pair_worker, a): a for a in work_args}
+            for fut in as_completed(futures):
+                results.append(fut.result())
+    else:
+        results = [_analyze_pair_worker(a) for a in work_args]
+
     flagged = []
-    for yaml_file in yaml_files:
-        with open(yaml_file) as f:
-            comp = yaml.safe_load(f)
-        for pair in comp.get("pairs", []):
-            t1 = pair["ticker1"]; t2 = pair["ticker2"]
-            label = pair.get("label", f"{t1}/{t2}")
-            result = analyze_pair(t1, t2, label)
+    for result in results:
+        if "error" in result:
+            if verbose:
+                t1 = result.get("ticker1", "?")
+                t2 = result.get("ticker2", "?")
+                print(f"  SKIP {t1}/{t2}: {result['error']}")
+            continue
 
-            if "error" in result:
-                if verbose:
-                    print(f"  SKIP {t1}/{t2}: {result['error']}")
-                continue
+        curr   = result.get("current_corr")
+        thresh = result.get("threshold")
+        is_anomaly = curr is not None and thresh is not None and curr < thresh
 
-            curr = result.get("current_corr")
-            thresh = result.get("threshold")
-
-            # Flag if current correlation is below threshold
-            is_anomaly = curr is not None and thresh is not None and curr < thresh
-
+        if verbose or is_anomaly:
             status = "🚨 ANOMALY" if is_anomaly else "  OK     "
-            if verbose or is_anomaly:
-                hl_str = f"{result['half_life']:.0f}d" if result['half_life'] else "N/A"
-                coint  = "Y" if result['cointegrated'] else "N"
-                print(f"  {status} {t1}/{t2:6s} | corr={curr:.3f} thresh={thresh:.3f} "
-                      f"| hl={hl_str} coint={coint} | {label[:40]}")
+            hl_str = f"{result['half_life']:.0f}d" if result.get('half_life') else "N/A"
+            score  = result.get("score", 0)
+            rating = result.get("rating", "")
+            t1 = result["ticker1"]; t2 = result["ticker2"]
+            label = result.get("label", "")[:35]
+            print(f"  {status} {t1}/{t2:6s} | score={score:>5.1f} hl={hl_str} "
+                  f"| {rating:<14} | {label}")
 
-            if is_anomaly:
-                log_anomaly(result)
-                flagged.append(result)
+        if is_anomaly:
+            log_anomaly(result)
+            flagged.append(result)
 
     print(f"\n  Flagged: {len(flagged)} anomaly(ies)")
+    if flagged:
+        write_anomaly_yaml(flagged, compositions_dir)
     return flagged
 
 
-def run_screening(yaml_path: str):
-    """Screen a yaml file — stats only, no LLM. Writes to screening table."""
-    with open(yaml_path) as f:
-        comp = yaml.safe_load(f)
-
-    pairs = comp.get("pairs", [])
-
-    # ── Auto-fetch any missing tickers ───────────────────────────────────────
-    tickers_needed = list(set(
-        t for p in pairs for t in [p["ticker1"], p["ticker2"]]
-        if not os.path.exists(os.path.join(data_dir, f"{t.lower()}_daily.csv"))
-    ))
-    if tickers_needed:
-        print(f"  Fetching {len(tickers_needed)} missing ticker(s): "
-              f"{', '.join(sorted(tickers_needed))}")
-        ensure_data(tickers_needed, data_dir)
-        print()
-
-    print(f"\nScreening {len(pairs)} pair(s) from {os.path.basename(yaml_path)}")
-    print(f"{'Ticker':<12} {'Coint':>5} {'HalfLife':>9} {'Window':>7} "
-          f"{'Episodes':>9} {'Rating'}")
-    print("-" * 70)
-
-    results = []
-    for pair in pairs:
-        t1 = pair["ticker1"]; t2 = pair["ticker2"]
-        label = pair.get("label", f"{t1}/{t2}")
-        result = analyze_pair(t1, t2, label)
-
-        if "error" in result:
-            print(f"{t1}/{t2:<10} ERROR: {result['error']}")
-            continue
-
-        coint  = "YES" if result["cointegrated"] else "NO"
-        hl     = f"{result['half_life']:.1f}" if result["half_life"] else "N/A"
-        window = result["window"]
-        eps    = result["episodes"]
-        rating = result["rating"]
-
-        print(f"{t1}/{t2:<10} {coint:>5} {hl:>9} {window:>7} {eps:>9}    {rating}")
-        log_screening(result)
-        results.append(result)
-
-    # Summary
-    cointed = [r for r in results if r.get("cointegrated")]
-    strong  = [r for r in results if "Strong" in r.get("rating", "")]
-    print(f"\nSummary: {len(results)} pairs | {len(cointed)} cointegrated "
-          f"| {len(strong)} strong candidates")
-
-    if strong:
-        print("\nStrong candidates:")
-        for r in strong:
-            print(f"  {r['ticker1']}/{r['ticker2']} — hl={r['half_life']:.0f}d "
-                  f"episodes={r['episodes']}")
-
-
 def print_summary():
-    """Print today's anomaly log."""
-    conn = sqlite3.connect(db_path)
+    conn  = sqlite3.connect(db_path)
     today = str(date.today())
-    rows = conn.execute("""
+    rows  = conn.execute("""
         SELECT timestamp, ticker1, ticker2, label, corr_value,
                threshold, deviation, cointegrated
-        FROM anomalies
-        WHERE date = ?
-        ORDER BY timestamp DESC
+        FROM anomalies WHERE date = ? ORDER BY timestamp DESC
     """, (today,)).fetchall()
     conn.close()
 
@@ -413,12 +720,10 @@ def print_summary():
     if not rows:
         print("  No anomalies logged today.")
         return
-
     for r in rows:
         ts, t1, t2, label, corr, thresh, dev, coint = r
-        time_str = ts[11:16]
-        dev_str  = f"{dev:.1f}σ" if dev else "N/A"
-        print(f"  {time_str}  {t1}/{t2:<8} corr={corr:.3f} "
+        dev_str = f"{dev:.1f}σ" if dev else "N/A"
+        print(f"  {ts[11:16]}  {t1}/{t2:<8} corr={corr:.3f} "
               f"thresh={thresh:.3f} dev={dev_str} coint={coint}")
         if label:
             print(f"           {label}")
@@ -428,18 +733,22 @@ def print_summary():
 
 def main():
     parser = argparse.ArgumentParser(description="ShiftInnerV Layer 1 Monitor")
-    parser.add_argument("--loop",         action="store_true",
-                        help="Run continuously")
-    parser.add_argument("--interval",     type=int, default=1800,
-                        help="Loop interval in seconds (default: 1800)")
-    parser.add_argument("--summary",      action="store_true",
-                        help="Print today's anomaly log and exit")
-    parser.add_argument("--screen",       type=str, default=None,
-                        help="Screen a yaml file (stats only, no LLM)")
-    parser.add_argument("--compositions", type=str, default=None,
-                        help="Compositions directory (default: ./compositions)")
-    parser.add_argument("--quiet",        action="store_true",
-                        help="Only print anomalies, not OK pairs")
+    parser.add_argument("--loop",         action="store_true")
+    parser.add_argument("--interval",     type=int, default=1800)
+    parser.add_argument("--summary",      action="store_true")
+    parser.add_argument("--screen",       type=str, default=None)
+    parser.add_argument("--compositions", type=str, default=None)
+    parser.add_argument("--quiet",        action="store_true")
+    parser.add_argument("--workers",      type=int, default=1,
+                        help="Parallel workers for screening (default: 1)")
+    parser.add_argument("--top",          type=int, default=None,
+                        help="Show only top N results in --screen mode")
+    parser.add_argument("--filter",       type=str, default=None,
+                        help="Filter: prime|strong|solid|watch (score bands)")
+    parser.add_argument("--min-score",    type=float, default=None,
+                        help="Minimum score threshold (overrides --filter)")
+    parser.add_argument("--show-suspicious", action="store_true",
+                        help="Include pairs with suspicious SNR (>1000)")
     args = parser.parse_args()
 
     init_db()
@@ -449,7 +758,17 @@ def main():
         return
 
     if args.screen:
-        run_screening(os.path.expanduser(args.screen))
+        score_band_map = {
+            "prime":  ["★★★ PRIME"],
+            "strong": ["★★  STRONG"],
+            "solid":  ["★   SOLID"],
+            "watch":  ["◆   WATCH"],
+        }
+        rf = score_band_map.get(args.filter) if args.filter else None
+        run_screening(os.path.expanduser(args.screen),
+                      workers=args.workers,
+                      top_n=args.top,
+                      ratings_filter=rf)
         return
 
     compositions_dir = os.path.expanduser(
@@ -461,12 +780,14 @@ def main():
         print(f"ShiftInnerV Monitor — loop every {args.interval}s")
         print(f"Anomaly log: {db_path}")
         while True:
-            run_monitor(compositions_dir, verbose=not args.quiet)
+            run_monitor(compositions_dir, verbose=not args.quiet,
+                        workers=args.workers)
             print(f"  Next run in {args.interval // 60}m — "
                   f"{datetime.now().strftime('%H:%M')}")
             time.sleep(args.interval)
     else:
-        run_monitor(compositions_dir, verbose=not args.quiet)
+        run_monitor(compositions_dir, verbose=not args.quiet,
+                    workers=args.workers)
 
 
 if __name__ == "__main__":
