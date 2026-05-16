@@ -7,7 +7,7 @@ from tools.correlation_tool import CorrelationDecayTool
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
-local_llm = "ollama/llama3.1"
+local_llm = "ollama/qwen2.5:14b"
 
 search_tool = SerperDevTool()
 
@@ -43,7 +43,7 @@ def make_crew(ticker1: str, ticker2: str) -> tuple:
         tools=[correlation_tool],
         verbose=True,
         allow_delegation=False,
-        max_iter=8,
+        max_iter=3,
         max_rpm=15
     )
 
@@ -74,7 +74,7 @@ def make_crew(ticker1: str, ticker2: str) -> tuple:
         tools=[search_tool],
         verbose=True,
         allow_delegation=False,
-        max_iter=8,
+        max_iter=5,
         max_rpm=15
     )
 
