@@ -1,0 +1,16 @@
+pairs:
+  - ticker1: BRK-B
+    ticker2: XLF
+    label: "Berkshire vs Financials Sector"
+    lookback_years: 1
+    cointegrated: unknown
+  - ticker1: BRK-B
+    ticker2: XLV
+    label: "Berkshire vs Healthcare Sector"
+    lookback_years: 1
+    cointegrated: unknown
+  - ticker1: BRK-B
+    ticker2: XLRE
+    label: "Berkshire vs Real Estate Sector"
+    lookback_years: 1
+    cointegrated: unknown
