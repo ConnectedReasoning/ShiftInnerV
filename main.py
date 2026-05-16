@@ -9,7 +9,7 @@ from crewai import Crew, Process
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
-from agents import quant_scout, forensic_researcher, skeptic_analyst
+from agents import make_crew
 from tasks import build_tasks
 from data_manager import ensure_data, tickers_from_pairs
 
@@ -178,6 +178,9 @@ if __name__ == "__main__":
             continue
 
         print(f"Running Truth Squad: {label} ({ticker1} / {ticker2})\n")
+
+        # Fresh agents per pair — correlation tool locked to this pair's tickers
+        quant_scout, forensic_researcher, skeptic_analyst = make_crew(ticker1, ticker2)
 
         correlation_audit, anomaly_investigation, divergence_report = build_tasks(
             pair=pair,

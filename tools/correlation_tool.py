@@ -7,8 +7,8 @@ from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
-load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
-data_dir = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
+load_dotenv(os.path.expanduser("~/.innershiftv_env"))
+data_dir = os.getenv("DATA_STORAGE_PATH", "/Volumes/Elessar/InnerShiftV_Data")
 
 
 class CorrelationDecayTool(BaseTool):
@@ -18,9 +18,25 @@ class CorrelationDecayTool(BaseTool):
     optional window size. Flags anomalous decoupling based on each pair's
     own historical baseline rather than a fixed threshold."""
 
+    # Set at instantiation time to lock the tool to a specific pair.
+    # If set, any call with different tickers is rejected immediately.
+    expected_ticker1: str = ""
+    expected_ticker2: str = ""
+
     def _run(self, ticker1: str = "REMX", ticker2: str = "SOXX",
              window: int = None) -> str:
         try:
+            # ── Hallucination guard ───────────────────────────────────────────
+            if self.expected_ticker1 and self.expected_ticker2:
+                allowed = {self.expected_ticker1.upper(), self.expected_ticker2.upper()}
+                provided = {ticker1.upper(), ticker2.upper()}
+                if provided != allowed:
+                    return (
+                        f"Tool error: invalid tickers {ticker1}/{ticker2}. "
+                        f"This tool is locked to {self.expected_ticker1}/{self.expected_ticker2} "
+                        f"for this run. Do not call other tools. "
+                        f"Return your final answer using the data already provided."
+                    )
             path1 = f"{data_dir}/{ticker1.lower()}_daily.csv"
             path2 = f"{data_dir}/{ticker2.lower()}_daily.csv"
 
