@@ -81,9 +81,8 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
       N/A -> REJECT: "Lambda >= 0. Spread is non-mean-reverting."
 
     Gate 3 — SNR
-      PASS: SNR >= 1.0 (MODERATE or STRONG tier)
-      FAIL -> REJECT: "SNR [value] < 1.0. Nonstationary drift dominates
-                       mean-reverting signal. Pair fails tradability threshold."
+        PASS: SNR >= 1.0 (MODERATE, STRONG tier, or a max value of 99.9999 indicating a near-flat trend)
+        FAIL -> REJECT: "SNR [value] < 1.0. Nonstationary drift dominates mean-reverting signal."
 
     Gate 4 — Episode persistence
       PASS: 2 or more distinct decoupling episodes
