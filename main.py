@@ -12,6 +12,8 @@ load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 from agents import make_crew
 from tasks import build_tasks
 from data_manager import ensure_data, tickers_from_pairs
+from dossier import render_dossier
+from promote import run as promote_run
 
 data_dir   = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
 report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
@@ -244,3 +246,42 @@ if __name__ == "__main__":
             f.write("\n".join(appendix_lines))
 
         print(f"Report written to: {report_path}\n")
+
+        # ── Trigger dossier for actionable verdicts ───────────────────────────
+        verdict_text = str(result.raw) if not crew_error else ""
+        verdict_upper = verdict_text.upper()
+        is_actionable = (
+            "ACTIVE" in verdict_upper or
+            "MONITOR-NEAR" in verdict_upper
+        )
+
+        if is_actionable and not crew_error:
+            print(f"  ✅  Actionable verdict detected — generating dossier for {ticker1}/{ticker2}...")
+            try:
+                lookback_days = pair.get("lookback_years", 5) * 252 // 12  # ~months to days
+                lookback_days = min(max(lookback_days, 60), 180)           # clamp 60–180d
+                dossier_text  = render_dossier(ticker1, ticker2, lookback_days)
+
+                # Save alongside the crew report
+                dossier_filename = f"dossier_{ticker1}_{ticker2}_{timestamp}.md"
+                dossier_path     = os.path.join(report_dir, dossier_filename)
+                with open(dossier_path, "w") as f:
+                    f.write(dossier_text)
+                print(f"  Dossier written to: {dossier_path}\n")
+            except Exception as e:
+                print(f"  WARNING: Dossier generation failed for {label} — {e}\n")
+
+    # ── Auto-promote after all pairs processed ────────────────────────────────
+    # Reads screening table, applies quality filters, writes focused composition
+    # ready for the next main.py run. Silently skips if no candidates pass.
+    if len(pairs) > 1:
+        print("Running promote.py — building next focused composition from screening DB...")
+        try:
+            promoted_path = promote_run(quiet=False)
+            if promoted_path:
+                print(f"  ✅  Promoted composition ready: {promoted_path}")
+                print(f"  To run agents on it: python main.py --pairs {promoted_path}\n")
+            else:
+                print("  No candidates met promotion filters — skipping.\n")
+        except Exception as e:
+            print(f"  WARNING: promote.py failed — {e}\n")

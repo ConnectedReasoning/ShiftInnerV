@@ -1,0 +1,210 @@
+# ShiftInnerV — Generated Composition
+# Option A — Commodity vs Equity Proxy (40 pairs)
+# Generated: 2026-05-17 16:47
+# Pairs: 40
+# Lookback: 3 years (sufficient for Johansen power)
+#
+# SCREENING FILE — run through monitor.py --screen before promoting to production
+# python monitor.py --screen composition_a_commodity_equity_proxy.yaml
+
+pairs:
+- ticker1: REMX
+  ticker2: SOXX
+  label: Rare Earth Miners vs Semiconductor ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: REMX
+  ticker2: SMH
+  label: Rare Earth Miners vs SMH Semis
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: REMX
+  ticker2: NVDA
+  label: Rare Earth Miners vs Nvidia
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: REMX
+  ticker2: TSM
+  label: Rare Earth Miners vs TSMC
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: REMX
+  ticker2: AMAT
+  label: Rare Earth Miners vs Applied Materials
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: MP
+  ticker2: SOXX
+  label: MP Materials vs Semiconductor ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: MP
+  ticker2: NVDA
+  label: MP Materials vs Nvidia
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: LIT
+  ticker2: SOXX
+  label: Lithium vs Semiconductor ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: LIT
+  ticker2: TSLA
+  label: Lithium vs Tesla
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: LIT
+  ticker2: NIO
+  label: Lithium vs NIO
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: COPX
+  ticker2: XLI
+  label: Copper Miners vs Industrials ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: COPX
+  ticker2: DE
+  label: Copper Miners vs Deere
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: FCX
+  ticker2: XLI
+  label: Freeport vs Industrials ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: FCX
+  ticker2: XLB
+  label: Freeport vs Materials ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: CPER
+  ticker2: FCX
+  label: Copper ETF vs Freeport
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: CPER
+  ticker2: XLB
+  label: Copper ETF vs Materials ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GDX
+  ticker2: GLD
+  label: Gold Miners ETF vs Gold
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GDX
+  ticker2: IAU
+  label: Gold Miners vs Gold iShares
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GDXJ
+  ticker2: GLD
+  label: Junior Gold Miners vs Gold
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GDXJ
+  ticker2: GDX
+  label: Junior vs Senior Gold Miners
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: SIL
+  ticker2: SLV
+  label: Silver Miners vs Silver
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: SIL
+  ticker2: GDX
+  label: Silver Miners vs Gold Miners
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: USO
+  ticker2: XLE
+  label: WTI Crude vs Energy Sector ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: USO
+  ticker2: XOP
+  label: WTI Crude vs E&P ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: USO
+  ticker2: OIH
+  label: WTI Crude vs Oil Services
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BNO
+  ticker2: XLE
+  label: Brent Crude vs Energy Sector ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BNO
+  ticker2: XOM
+  label: Brent Crude vs ExxonMobil
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: USO
+  ticker2: CVX
+  label: WTI Crude vs Chevron
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: UNG
+  ticker2: XLE
+  label: Natural Gas vs Energy ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: UNG
+  ticker2: COP
+  label: Natural Gas vs ConocoPhillips
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: CORN
+  ticker2: MOO
+  label: Corn vs Agribusiness ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: CORN
+  ticker2: ADM
+  label: Corn vs Archer-Daniels-Midland
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: WEAT
+  ticker2: ADM
+  label: Wheat vs Archer-Daniels-Midland
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: SOYB
+  ticker2: ADM
+  label: Soybeans vs Archer-Daniels-Midland
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: SOYB
+  ticker2: BG
+  label: Soybeans vs Bunge Global
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: DBA
+  ticker2: MOO
+  label: Agriculture ETF vs Agribusiness ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: MOS
+  ticker2: CORN
+  label: Mosaic Fertilizer vs Corn
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: NTR
+  ticker2: WEAT
+  label: Nutrien vs Wheat
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: PICK
+  ticker2: XLB
+  label: Diversified Mining vs Materials ETF
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BATT
+  ticker2: LIT
+  label: Battery Tech ETF vs Lithium ETF
+  lookback_years: 3
+  cointegrated: unknown
