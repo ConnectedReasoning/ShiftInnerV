@@ -64,6 +64,13 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
     STEP 2 — Apply the hard gates in sequence. Stop at the first failure
     and assign REJECT. Do not skip gates or apply judgment to override them.
 
+    GATE LABEL RULES — apply silently, do not print these rules in your output:
+    - Gate label must exactly match the outcome: never write PASS when the value fails the threshold.
+    - Gate 2 PASS requires half-life between 1 and 120 days AND lambda < 0.
+    - Gate 4 label is N/A when any of Gates 1-3 resulted in FAIL or REJECT.
+    - Gate 4 label is FAIL when gates 1-3 passed but fewer than 2 episodes found.
+    - Gate 4 label is PASS only when gates 1-3 all passed AND 2+ episodes found.
+
     Gate 1 — Cointegration
       The Scout's report shows results at 90%, 95%, and 99% CI.
       PASS: 95% CI result is PASS
@@ -75,20 +82,31 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
                        critical value [value]. No structural tether confirmed."
 
     Gate 2 — Half-life
-      PASS: half-life is between 1 and 120 days
-      FAIL -> REJECT: "Half-life [value] days exceeds 120-day tradeable
-                       horizon. Spread reverts too slowly for actionable signal."
-      N/A -> REJECT: "Lambda >= 0. Spread is non-mean-reverting."
+      Evaluate in this order:
+      Step A — If the report shows "N/A" or "lambda >= 0": label FAIL.
+               Write: "FAIL — Lambda >= 0. Spread is non-mean-reverting."
+      Step B — If half-life numeric value > 120 days: label FAIL.
+               Write: "FAIL — Half-life [value]d exceeds 120-day tradeable horizon."
+      Step C — If half-life is between 1 and 120 days: label PASS.
+               Write: "PASS — Half-life [value]d is within the tradeable horizon."
+      CRITICAL: Never write PASS if half-life exceeds 120 days or lambda >= 0.
 
     Gate 3 — SNR
-        PASS: SNR >= 1.0 (MODERATE, STRONG tier, or a max value of 99.9999 indicating a near-flat trend)
-        FAIL -> REJECT: "SNR [value] < 1.0. Nonstationary drift dominates mean-reverting signal."
+      PASS: SNR >= 1.0 (MODERATE, STRONG tier, or a max value of 99.9999 indicating a near-flat trend)
+        Write: "PASS — SNR [value] >= 1.0 ([tier] tier)."
+      FAIL: SNR < 1.0
+        Write: "FAIL — SNR [value] < 1.0. Nonstationary drift dominates mean-reverting signal."
 
     Gate 4 — Episode persistence
-      PASS: 2 or more distinct decoupling episodes
-      FAIL -> MONITOR: "Only [n] episode(s) detected over the data range.
-                        Insufficient evidence of persistent structural pattern.
-                        Re-evaluate in 30 days."
+      IMPORTANT: Only evaluate Gate 4 if Gates 1, 2, and 3 all passed.
+      If any prior gate was FAIL or REJECT, write "N/A — prior gate failed." for Gate 4.
+      If evaluating:
+        PASS: 2 or more distinct decoupling episodes detected.
+          Write: "PASS — [n] distinct episodes detected."
+        FAIL: fewer than 2 episodes.
+          Write: "FAIL — Only [n] episode(s) detected. Insufficient evidence of persistent pattern."
+      Note: Gate 4 FAIL results in MONITOR verdict, not REJECT.
+      CRITICAL: Never write PASS if fewer than 2 episodes were detected.
 
     Gate 5 — All gates pass -> ACTIVE
 
@@ -114,10 +132,10 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
     Label: {label}
 
     GATE RESULTS:
-    Gate 1 Cointegration: [PASS/FAIL] — [one line explanation with numbers]
-    Gate 2 Half-life:     [PASS/FAIL] — [one line explanation with numbers]
-    Gate 3 SNR:           [PASS/FAIL] — [one line explanation with numbers]
-    Gate 4 Episodes:      [PASS/FAIL/N/A] — [one line explanation with numbers]
+    Gate 1 Cointegration: [PASS/FAIL/MONITOR-NEAR] — [one line with trace stat and critical value]
+    Gate 2 Half-life:     [PASS/FAIL] — [one line with numeric half-life value and threshold]
+    Gate 3 SNR:           [PASS/FAIL] — [one line with numeric SNR value and tier]
+    Gate 4 Episodes:      [PASS/FAIL/N/A] — [one line with episode count; N/A if prior gate failed]
 
     VERDICT: [REJECT / MONITOR / ACTIVE]
 

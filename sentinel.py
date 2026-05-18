@@ -263,6 +263,18 @@ def main():
                     f"main.py [promoted]",
                     log,
                 )
+
+                # ── Step 4: AI summary after promoted run ─────────────────
+                summarize_py = os.path.join(PROJECT_DIR, "summarize.py")
+                if os.path.exists(summarize_py):
+                    log.info("Generating AI run summary...")
+                    run_subprocess(
+                        [sys.executable, summarize_py],
+                        "summarize.py",
+                        log,
+                    )
+                else:
+                    log.warning("summarize.py not found — skipping summary.")
             else:
                 log.warning("No promoted yaml found — skipping.")
 
