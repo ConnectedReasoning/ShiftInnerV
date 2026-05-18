@@ -119,9 +119,34 @@ def save_seen(seen: set):
 
 def run_subprocess(cmd: list, label: str, log: logging.Logger) -> bool:
     """
-    Run subprocess. Stream stdout/stderr to log file only — not console.
-    Console gets one START and one END line per job.
+    Run subprocess. All output goes to log file at DEBUG level.
+    Progress lines from main.py are also shown on console at INFO level.
+    Monitor pair-by-pair detail is suppressed from console.
     """
+    CONSOLE_TOKENS = (
+        "[",           # pair progress:  [  3/25]  ACTIVE ...
+        "Done ",       # run summary line
+        "\u21b3 dossier",  # dossier path
+        "Promoted \u2192",  # promote path
+        "Log \u2192",       # log path
+        "WARNING",
+        "ERROR",
+    )
+    SUPPRESS_TOKENS = (
+        "OK      ",
+        "NOISE   ",
+        "WATCH   ",
+        "SOLID   ",
+        "STRONG  ",
+        "PRIME   ",
+        "WEAK    ",
+        "ANOMALY ",
+        "Flagged:",
+        "Anomaly yaml:",
+        "Monitor pass",
+        "composition file",
+    )
+
     log.info(f"START  {label}")
     start = datetime.now()
     try:
@@ -134,8 +159,13 @@ def run_subprocess(cmd: list, label: str, log: logging.Logger) -> bool:
         )
         for line in proc.stdout:
             line = line.rstrip()
-            if line:
-                log.debug(f"  │  {line}")   # DEBUG — file only, not console
+            if not line:
+                continue
+            log.debug(f"  |  {line}")
+            suppressed = any(t in line for t in SUPPRESS_TOKENS)
+            promoted   = any(t in line for t in CONSOLE_TOKENS)
+            if promoted and not suppressed:
+                log.info(f"  |  {line}")
         proc.wait()
         elapsed = (datetime.now() - start).seconds
         ok      = proc.returncode == 0
