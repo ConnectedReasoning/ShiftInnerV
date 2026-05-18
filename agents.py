@@ -9,7 +9,9 @@ local_llm = "ollama/qwen2.5:14b"
 
 
 def make_crew(ticker1: str, ticker2: str, lookback_years: int = 5,
-              n_pairs_in_composition: int = 1) -> tuple:
+              n_pairs_in_composition: int = 1,
+              pair_label: str = "",
+              factor_proxy_ticker: str = "") -> tuple:
     """
     Instantiate a fresh two-agent crew locked to the given pair and lookback.
     Returns (quant_scout, signal_mathematician).
@@ -19,6 +21,8 @@ def make_crew(ticker1: str, ticker2: str, lookback_years: int = 5,
         expected_ticker2=ticker2,
         lookback_years=lookback_years,
         n_pairs_in_composition=n_pairs_in_composition,
+        pair_label=pair_label,
+        factor_proxy_ticker=factor_proxy_ticker,
     )
 
     quant_scout = Agent(
@@ -76,7 +80,11 @@ def make_crew(ticker1: str, ticker2: str, lookback_years: int = 5,
     Gate 2 — Half-life: if half-life > 120 days -> REJECT (untradeable horizon).
     Gate 3 — SNR: if SNR < 1.0 -> REJECT (drift dominates signal).
     Gate 4 — Episode persistence: if fewer than 2 distinct episodes -> MONITOR.
-    Gate 5 — If all gates pass -> ACTIVE with computed thresholds.
+    Gate 5 — All gates pass (Gates 1-4) -> provisionally ACTIVE.
+    Gate 6 — Common Factor Exposure: check the "=== GATE 6 — COMMON FACTOR
+              EXPOSURE ===" section in the Scout report.
+              FACTOR_CONTAMINATED: downgrade any verdict to MONITOR.
+              SKIPPED_*: proceed on Gates 1-4; note manual sector check needed.
 
     For ACTIVE verdicts you compute:
     - Optimal entry z-score: 2.0 standard deviations from mean

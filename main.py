@@ -215,6 +215,8 @@ if __name__ == "__main__":
             ticker1, ticker2,
             lookback_years=lookback_years,
             n_pairs_in_composition=n_pairs,
+            pair_label=pair.get("label", ""),
+            factor_proxy_ticker=pair.get("factor_proxy", ""),
         )
         correlation_audit, quant_assessment = build_tasks(
             pair=pair,

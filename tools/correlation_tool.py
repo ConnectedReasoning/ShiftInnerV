@@ -11,6 +11,35 @@ from statsmodels.tsa.vector_ar.vecm import coint_johansen
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 data_dir = os.getenv("DATA_STORAGE_PATH", "/Volumes/Elessar/ShiftInnerV_Data")
 
+# ── Category-to-factor-proxy map (Item 12 — Gate 6) ─────────────────────────
+# Maps composition label keywords to representative sector ETFs.
+# These ETFs must be present in data_dir (downloaded via data_manager).
+# SPY is used as the default broad-market proxy when no category matches.
+CATEGORY_FACTOR_MAP = {
+    "china":        "KWEB",
+    "china_em":     "KWEB",
+    "china adr":    "KWEB",
+    "defense":      "ITA",
+    "financial":    "KBE",
+    "bank":         "KBE",
+    "semiconductor": "SOXX",
+    "semis":        "SOXX",
+    "energy":       "XLE",
+    "miner":        "GDX",
+    "clean":        "ICLN",
+    "healthcare":   "XBI",
+    "ai":           "BOTZ",
+    "real_estate":  "VNQ",
+    "shipping":     "BDRY",
+    "agriculture":  "MOO",
+    "commodity":    "DBC",
+    "currency":     "UUP",
+    "fixed":        "TLT",
+    "bond":         "TLT",
+}
+
+FACTOR_LOADING_THRESHOLD = 0.3  # |normalised eigenvector factor coefficient|
+
 
 class CorrelationDecayTool(BaseTool):
     name: str = "correlation_decay_analyzer"
@@ -25,6 +54,8 @@ class CorrelationDecayTool(BaseTool):
     expected_ticker2: str = ""
     lookback_years: int = 5   # 1, 3, or 5 — default is full 5-year history
     n_pairs_in_composition: int = 1  # used for Gate 1 threshold adjustment
+    pair_label: str = ""              # used to infer factor proxy category
+    factor_proxy_ticker: str = ""     # explicit override; inferred if empty
 
     def _run(self, ticker1: str = "REMX", ticker2: str = "SOXX",
              window: int = None) -> str:
@@ -67,6 +98,22 @@ class CorrelationDecayTool(BaseTool):
             log_prices = pd.DataFrame(
                 {ticker1: log_p1.loc[shared_idx], ticker2: log_p2.loc[shared_idx]}
             ).dropna()
+
+            # ── Gate 6 factor proxy selection (Item 12 — Vidyamurthy fix) ───
+            # Determine factor proxy ticker: explicit override takes priority,
+            # then category inference from pair_label, then SPY as default.
+            _factor_proxy = self.factor_proxy_ticker.strip().upper()
+            if not _factor_proxy:
+                label_lower = self.pair_label.lower()
+                for keyword, etf in CATEGORY_FACTOR_MAP.items():
+                    if keyword in label_lower:
+                        _factor_proxy = etf
+                        break
+                if not _factor_proxy:
+                    _factor_proxy = "SPY"   # broad-market default
+            # Avoid using one of the pair tickers as its own factor proxy
+            if _factor_proxy in {ticker1.upper(), ticker2.upper()}:
+                _factor_proxy = "SPY"
 
             # ── Gate 1 threshold selection (Item 1 — multiple comparisons) ──
             # The threshold used for Gate 1 depends on how many pairs are
@@ -135,6 +182,59 @@ class CorrelationDecayTool(BaseTool):
 
             # Primary gate uses 95% CI
             is_cointegrated = is_cointegrated_95
+
+            # ── Gate 6 — Residual common factor exposure (Item 12) ───────────
+            # Run a 3-series Johansen on [ticker1, ticker2, factor_proxy]
+            # using the training window. Examine the normalised factor loading
+            # in the first cointegrating eigenvector.
+            # |loading| > FACTOR_LOADING_THRESHOLD -> cointegration is
+            # factor-driven; flag pair as MONITOR regardless of Gate 1.
+            _gate6_result   = "SKIPPED"   # default if factor data unavailable
+            _gate6_loading  = None
+            _gate6_proxy    = _factor_proxy
+
+            try:
+                _proxy_path = os.path.join(data_dir,
+                                           f"{_factor_proxy.lower()}_daily.csv")
+                if os.path.exists(_proxy_path):
+                    _proxy_df = pd.read_csv(_proxy_path, index_col=0)
+                    _log_proxy = np.log(_proxy_df["Close"].dropna())
+
+                    # Align proxy to training window index
+                    _shared_train = (log_prices_train.index
+                                     .intersection(_log_proxy.index))
+                    if len(_shared_train) >= 60:
+                        _lp_train3 = pd.DataFrame({
+                            ticker1:       log_prices_train[ticker1].loc[_shared_train],
+                            ticker2:       log_prices_train[ticker2].loc[_shared_train],
+                            _factor_proxy: _log_proxy.loc[_shared_train],
+                        }).dropna()
+
+                        if len(_lp_train3) >= 60:
+                            # Run at same conservative k as Item 17
+                            _r3 = coint_johansen(
+                                _lp_train3,
+                                det_order=0,
+                                k_ar_diff=conservative_k,
+                            )
+                            _evec = _r3.evec[:, 0]   # first cointegrating vector
+                            # Normalise: divide by element[0] so ticker1 coefficient = 1
+                            _norm = _evec[0] if abs(_evec[0]) > 1e-8 else 1.0
+                            _evec_norm = _evec / _norm
+                            _gate6_loading = float(abs(_evec_norm[2]))
+
+                            if _gate6_loading > FACTOR_LOADING_THRESHOLD:
+                                _gate6_result = "FACTOR_CONTAMINATED"
+                            else:
+                                _gate6_result = "PASS"
+                        else:
+                            _gate6_result = "SKIPPED_INSUFFICIENT_OVERLAP"
+                    else:
+                        _gate6_result = "SKIPPED_INSUFFICIENT_OVERLAP"
+                else:
+                    _gate6_result = "SKIPPED_PROXY_NOT_FOUND"
+            except Exception as _g6_err:
+                _gate6_result = f"SKIPPED_ERROR"
 
             # ── Dynamic window from half-life ─────────────────────────────────
             spread = log_prices_signal[ticker1] - log_prices_signal[ticker2]
@@ -328,6 +428,37 @@ class CorrelationDecayTool(BaseTool):
                 report += (
                     "  WARNING: Pair is NOT cointegrated at 95% CI (conservative k). Rolling correlation "
                     "patterns may not reflect a durable structural relationship.\n"
+                )
+            report += "\n"
+
+            # Gate 6 — Factor exposure
+            report += "=== GATE 6 — COMMON FACTOR EXPOSURE ===\n"
+            report += f"Factor proxy used: {_gate6_proxy}\n"
+            if _gate6_loading is not None:
+                report += (
+                    f"Normalised factor loading: {_gate6_loading:.4f} "
+                    f"(threshold: {FACTOR_LOADING_THRESHOLD})\n"
+                )
+            if _gate6_result == "PASS":
+                report += (
+                    f"Gate 6: PASS — Factor loading {_gate6_loading:.4f} "
+                    f"< {FACTOR_LOADING_THRESHOLD}. "
+                    f"Cointegration appears idiosyncratic, not factor-driven.\n"
+                )
+            elif _gate6_result == "FACTOR_CONTAMINATED":
+                report += (
+                    f"Gate 6: FACTOR_CONTAMINATED — Factor loading "
+                    f"{_gate6_loading:.4f} > {FACTOR_LOADING_THRESHOLD}. "
+                    f"Cointegration may be driven by shared {_gate6_proxy} "
+                    f"exposure. Pair is vulnerable to sector repricing events. "
+                    f"Verdict capped at MONITOR regardless of other gates.\n"
+                )
+            else:
+                report += (
+                    f"Gate 6: {_gate6_result} — "
+                    f"Factor exposure diagnostic not available. "
+                    f"Pair proceeds on Gates 1-4 alone. "
+                    f"Manually check for sector concentration risk.\n"
                 )
             report += "\n"
 

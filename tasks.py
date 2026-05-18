@@ -108,7 +108,18 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
       Note: Gate 4 FAIL results in MONITOR verdict, not REJECT.
       CRITICAL: Never write PASS if fewer than 2 episodes were detected.
 
-    Gate 5 — All gates pass -> ACTIVE
+    Gate 5 — All gates pass (Gates 1-4) -> provisionally ACTIVE
+
+    Gate 6 — Common Factor Exposure (from Scout report section
+              "=== GATE 6 — COMMON FACTOR EXPOSURE ===")
+      PASS:                 proceed; ACTIVE verdict stands
+      FACTOR_CONTAMINATED:  downgrade to MONITOR regardless of Gate 1-4 results.
+                            Note: "Cointegration may be factor-driven.
+                            Pair capped at MONITOR pending sector
+                            concentration review."
+      SKIPPED_*:            proceed on Gates 1-4; add note in verdict:
+                            "Gate 6 factor diagnostic unavailable. Manual
+                             sector check recommended before entry."
 
     STEP 3 — For ACTIVE verdicts only, compute and report:
     - Entry threshold: spread z-score >= 2.0 standard deviations from mean
@@ -136,6 +147,7 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
     Gate 2 Half-life:     [PASS/FAIL] — [one line with numeric half-life value and threshold]
     Gate 3 SNR:           [PASS/FAIL] — [one line with numeric SNR value and tier]
     Gate 4 Episodes:      [PASS/FAIL/N/A] — [one line with episode count; N/A if prior gate failed]
+    Gate 6 Factor Exposure: [PASS/FACTOR_CONTAMINATED/SKIPPED] — [one line]
 
     VERDICT: [REJECT / MONITOR / ACTIVE]
 
