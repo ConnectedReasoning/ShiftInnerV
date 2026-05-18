@@ -233,3 +233,4 @@ logs/
 *.csv
 *.json
 .venv/
+compositions/

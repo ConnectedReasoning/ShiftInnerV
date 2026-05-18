@@ -18,7 +18,7 @@
         <string>--promoted</string>
     </array>
 
-    <!-- Run at 06:00 every day -->
+    <!-- Run at 07:00 every day -->
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>

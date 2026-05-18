@@ -15,7 +15,7 @@
         <string>/Users/manuel/projects/github/ShiftInnerV/sentinel.py</string>
     </array>
 
-    <!-- Run at 18:00 every day -->
+    <!-- Run at 19:00 every day -->
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
