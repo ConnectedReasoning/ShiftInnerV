@@ -87,11 +87,26 @@ class CorrelationDecayTool(BaseTool):
             log_prices_train  = log_prices.iloc[:TRAIN_WINDOW]
             log_prices_signal = log_prices.iloc[TRAIN_WINDOW:]
 
-            coint_result = coint_johansen(log_prices_train, det_order=0, k_ar_diff=1)
-            trace_stat   = coint_result.lr1[0]
-            crit_val_90  = coint_result.cvt[0, 0]
-            crit_val_95  = coint_result.cvt[0, 1]
-            crit_val_99  = coint_result.cvt[0, 2]
+            # ── Multi-lag Johansen (Item 17 — Chan/Vidyamurthy fix) ──────────────────
+            # Run at k=1, 2, 3. Use the most conservative result (lowest trace stat).
+            # Critical values are k-invariant — only the trace statistic changes.
+            # The eigenvector from the conservative run is used for the hedge ratio
+            # and propagates into all SNR calculations.
+            _johansen_runs = {}
+            for _k in [1, 2, 3]:
+                _r = coint_johansen(log_prices_train, det_order=0, k_ar_diff=_k)
+                _johansen_runs[_k] = _r
+
+            conservative_k    = min(_johansen_runs, key=lambda k: _johansen_runs[k].lr1[0])
+            coint_result      = _johansen_runs[conservative_k]
+
+            trace_stat        = coint_result.lr1[0]
+            crit_val_90       = coint_result.cvt[0, 0]
+            crit_val_95       = coint_result.cvt[0, 1]
+            crit_val_99       = coint_result.cvt[0, 2]
+
+            # All three trace statistics — for reporting
+            trace_by_k = {k: _johansen_runs[k].lr1[0] for k in [1, 2, 3]}
 
             # Report all three confidence levels — agent sees the full picture
             is_cointegrated_90 = trace_stat > crit_val_90
@@ -267,16 +282,17 @@ class CorrelationDecayTool(BaseTool):
                 )
             report += f"Rolling window used: {effective_window} days (clamped to [10, 120])\n\n"
 
-            # Report all three CI levels for Johansen
-            report += "Johansen cointegration:\n"
-            report += f"  Trace statistic: {trace_stat:.4f}\n"
+            # Report all three CI levels for Johansen — conservative multi-lag result
+            report += "Johansen cointegration (multi-lag conservative):\n"
+            report += f"  Lag traces — k=1: {trace_by_k[1]:.4f}  k=2: {trace_by_k[2]:.4f}  k=3: {trace_by_k[3]:.4f}\n"
+            report += f"  Conservative lag selected: k={conservative_k} (lowest trace = {trace_stat:.4f})\n"
             report += f"  90% CI critical value: {crit_val_90:.4f}  — {'PASS' if is_cointegrated_90 else 'FAIL'}\n"
             report += f"  95% CI critical value: {crit_val_95:.4f}  — {'PASS' if is_cointegrated_95 else 'FAIL'}\n"
             report += f"  99% CI critical value: {crit_val_99:.4f}  — {'PASS' if is_cointegrated_99 else 'FAIL'}\n"
             report += f"  Primary gate (95% CI): {'YES — STRUCTURAL TETHER CONFIRMED' if is_cointegrated else 'NO — STRUCTURAL TETHER UNCERTAIN'}\n"
             if not is_cointegrated:
                 report += (
-                    "  WARNING: Pair is NOT cointegrated at 95% CI. Rolling correlation "
+                    "  WARNING: Pair is NOT cointegrated at 95% CI (conservative k). Rolling correlation "
                     "patterns may not reflect a durable structural relationship.\n"
                 )
             report += "\n"
