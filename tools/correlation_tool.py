@@ -67,7 +67,27 @@ class CorrelationDecayTool(BaseTool):
                 {ticker1: log_p1.loc[shared_idx], ticker2: log_p2.loc[shared_idx]}
             ).dropna()
 
-            coint_result = coint_johansen(log_prices, det_order=0, k_ar_diff=1)
+            # ── Window separation (Chan fix) ──────────────────────────────────────────
+            # Training window: first 250 rows — used ONLY for Johansen eigenvector
+            # Signal window:   remaining rows — used for all spread calculations
+            #
+            # NOTE: With lookback_years=1 (~252 rows total), the signal window will
+            # be only ~2 rows — too short for any reliable z-score. Prefer
+            # lookback_years=2 (signal ~254 rows) or lookback_years=3 (signal ~506 rows).
+            TRAIN_WINDOW = 250
+            if len(log_prices) < TRAIN_WINDOW + 60:
+                return (
+                    f"Tool error: insufficient data for window separation. "
+                    f"Need at least {TRAIN_WINDOW + 60} aligned rows "
+                    f"(250 training + 60 signal). "
+                    f"Got {len(log_prices)} rows for {ticker1}/{ticker2}. "
+                    f"Increase lookback_years or check data availability."
+                )
+
+            log_prices_train  = log_prices.iloc[:TRAIN_WINDOW]
+            log_prices_signal = log_prices.iloc[TRAIN_WINDOW:]
+
+            coint_result = coint_johansen(log_prices_train, det_order=0, k_ar_diff=1)
             trace_stat   = coint_result.lr1[0]
             crit_val_90  = coint_result.cvt[0, 0]
             crit_val_95  = coint_result.cvt[0, 1]
@@ -82,7 +102,7 @@ class CorrelationDecayTool(BaseTool):
             is_cointegrated = is_cointegrated_95
 
             # ── Dynamic window from half-life ─────────────────────────────────
-            spread = log_prices[ticker1] - log_prices[ticker2]
+            spread = log_prices_signal[ticker1] - log_prices_signal[ticker2]
             spread_lagged = spread.shift(1)
             delta_spread  = spread.diff()
 
@@ -110,12 +130,12 @@ class CorrelationDecayTool(BaseTool):
 
             # ── SNR pair score ────────────────────────────────────────────────
             ols_coint = OLS(
-                log_prices[ticker1],
-                add_constant(log_prices[ticker2])
+                log_prices_signal[ticker1],
+                add_constant(log_prices_signal[ticker2])
             ).fit()
 
-            residuals       = pd.Series(ols_coint.resid, index=log_prices.index)
-            trend_component = log_prices[ticker1] - residuals
+            residuals       = pd.Series(ols_coint.resid, index=log_prices_signal.index)
+            trend_component = log_prices_signal[ticker1] - residuals
 
             var_stationary    = float(np.var(residuals, ddof=1))
             var_nonstationary = float(np.var(trend_component, ddof=1))
@@ -166,7 +186,8 @@ class CorrelationDecayTool(BaseTool):
             )
 
             # ── Rolling correlation ───────────────────────────────────────────
-            close1 = df1["Close"].loc[df1["Close"].index.intersection(df2["Close"].index)]
+            signal_idx = log_prices_signal.index
+            close1 = df1["Close"].loc[df1["Close"].index.intersection(signal_idx)]
             close2 = df2["Close"].loc[close1.index]
 
             corr      = close1.rolling(effective_window).corr(close2)
@@ -213,12 +234,23 @@ class CorrelationDecayTool(BaseTool):
                 episodes.append(finalize_episode(episode_start, episode_labels))
 
             # ── Build report ──────────────────────────────────────────────────
-            actual_start = log_prices.index[0]
-            actual_end   = log_prices.index[-1]
+            train_start  = log_prices_train.index[0]
+            train_end    = log_prices_train.index[-1]
+            signal_start = log_prices_signal.index[0]
+            signal_end   = log_prices_signal.index[-1]
 
             report  = "=== CORRELATION DECAY REPORT ===\n"
             report += f"Pair: {ticker1} vs {ticker2} (window={effective_window} days)\n"
-            report += f"Lookback: {self.lookback_years} year(s) | Data range: {actual_start} to {actual_end}\n\n"
+            report += f"Lookback: {self.lookback_years} year(s)\n"
+            report += f"Training window (Johansen):  {train_start} to {train_end} ({TRAIN_WINDOW} days)\n"
+            report += f"Signal window (z-score):     {signal_start} to {signal_end} ({len(log_prices_signal)} days)\n\n"
+
+            if len(log_prices_signal) < 60:
+                report += (
+                    f"WARNING: Signal window has only {len(log_prices_signal)} rows after "
+                    f"reserving 250 days for Johansen training. "
+                    f"Consider increasing lookback_years to 2 or 3 for reliable z-score estimates.\n\n"
+                )
             report += f"Baseline mean correlation: {mean_corr:.3f}\n"
             report += f"Baseline std deviation: {std_corr:.3f}\n"
             report += f"Anomaly threshold (2 std): {threshold:.3f}\n\n"
