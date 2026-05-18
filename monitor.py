@@ -29,6 +29,7 @@ from datetime import datetime, date
 from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from data_manager import ensure_data
+from scipy import stats as _scipy_stats
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
@@ -137,6 +138,80 @@ def run_johansen(log_prices: pd.DataFrame):
         return trace > c90, trace > c95, trace, c90, c95
     except Exception:
         return None, None, None, None, None
+
+
+def johansen_approx_pvalue(trace_stat: float, n_series: int = 2) -> float:
+    """
+    Approximate p-value for the Johansen trace statistic using a chi-squared
+    distribution with df = n_series^2. This is a standard approximation
+    (asymptotically valid) used when exact p-values are unavailable.
+
+    NOTE: The approximation is conservative for small samples (n < 500).
+    Use for ranking and FDR correction only — not as a substitute for the
+    critical value gate.
+
+    Returns a p-value in [0, 1].
+    """
+    df = n_series ** 2
+    p = 1.0 - _scipy_stats.chi2.cdf(trace_stat, df=df)
+    return float(np.clip(p, 1e-10, 1.0))
+
+
+def apply_bh_correction(
+    results: list,
+    alpha: float = 0.05,
+    trace_key: str = "trace_stat",
+) -> list:
+    """
+    Apply Benjamini-Hochberg FDR correction to a list of pair results.
+
+    For each result, adds:
+      - 'p_approx':       approximate p-value from trace statistic
+      - 'p_bh_threshold': BH threshold for this pair's rank
+      - 'passes_bh':      True if p_approx <= p_bh_threshold
+      - 'bh_flag':        True if pair passes raw gate but fails BH correction
+
+    Pairs without a valid trace_stat are assigned passes_bh=None (not flagged).
+
+    Parameters
+    ----------
+    results : list of dicts, each with a 'trace_stat' key
+    alpha   : FDR level (default 0.05)
+    trace_key : key name for trace statistic in result dicts
+
+    Returns the same list with BH fields added in place.
+    """
+    # Collect valid trace stats with their original indices
+    valid = [
+        (i, r) for i, r in enumerate(results)
+        if r.get(trace_key) is not None and r.get(trace_key, 0) > 0
+    ]
+
+    if not valid:
+        return results
+
+    m = len(valid)
+
+    # Compute approximate p-values
+    for i, r in valid:
+        r["p_approx"] = johansen_approx_pvalue(r[trace_key])
+
+    # Sort by p-value ascending for BH step-up procedure
+    valid_sorted = sorted(valid, key=lambda x: x[1]["p_approx"])
+
+    # Apply BH thresholds: k/m * alpha for rank k (1-indexed)
+    for rank, (i, r) in enumerate(valid_sorted, start=1):
+        threshold = (rank / m) * alpha
+        r["p_bh_threshold"] = round(threshold, 6)
+        r["passes_bh"] = r["p_approx"] <= threshold
+
+    # Flag pairs that pass the raw 95% CI gate but fail BH correction
+    for i, r in valid:
+        raw_passes = r.get("cointegrated_95", False)
+        bh_passes  = r.get("passes_bh", True)  # None means not evaluated
+        r["bh_flag"] = bool(raw_passes and not bh_passes)
+
+    return results
 
 
 def analyze_pair(ticker1: str, ticker2: str, label: str = "",
@@ -568,6 +643,11 @@ def run_screening(yaml_path: str, workers: int = 1, top_n: int = None,
     # Sort by score descending
     results.sort(key=lambda r: r.get("score", 0), reverse=True)
 
+    # ── Multiple comparisons correction (Item 1 — Simons fix) ────────────────
+    n_tested = len([r for r in results if "error" not in r])
+    results = apply_bh_correction(results, alpha=0.05)
+    bh_flagged = [r for r in results if r.get("bh_flag")]
+
     displayed = 0
     score_threshold = 15.0  # hide pure noise unless --all flag
     for result in results:
@@ -590,7 +670,9 @@ def run_screening(yaml_path: str, workers: int = 1, top_n: int = None,
         trend  = result.get("trace_trend", 0)
         trend_str = f"+{trend:.2f}" if trend >= 0 else f"{trend:.2f}"
         rating = result.get("rating", "")
-        flag   = "⚠" if result.get("suspicious") else " "
+        flag   = "⚠" if result.get("suspicious") else (
+                 "⚑" if result.get("bh_flag") else " "
+        )
 
         print(f"{t1}/{t2:<12} {score:>5.1f} {ratio:>6.3f} {hl:>6} "
               f"{snr_str:>6} {eps:>4} {trend_str:>6}  {flag}{rating}")
@@ -608,6 +690,15 @@ def run_screening(yaml_path: str, workers: int = 1, top_n: int = None,
 
     print(f"\n{'─'*80}")
     print(f"{'Pairs screened:':<25} {len(results):>6}")
+    bh_flagged_count = len([r for r in results if r.get("bh_flag")])
+    raw_pass_count   = len([r for r in results if r.get("cointegrated_95")])
+    bh_pass_count    = len([r for r in results if r.get("passes_bh")])
+    print(f"{'Cointegrated (raw 95% CI):':<25} {raw_pass_count:>6}")
+    print(f"{'Cointegrated (BH-adjusted):':<25} {bh_pass_count:>6}  "
+          f"(FDR α=0.05, n={n_tested})")
+    if bh_flagged_count > 0:
+        print(f"{'⚑ Marginal (raw pass/BH fail):':<25} {bh_flagged_count:>6}  "
+              f"(treat as MONITOR, not ACTIVE)")
     print(f"{'★★★ PRIME  (≥75):':<25} {len(prime):>6}")
     print(f"{'★★  STRONG (60-74):':<25} {len(strong):>6}")
     print(f"{'★   SOLID  (45-59):':<25} {len(solid):>6}")

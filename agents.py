@@ -8,7 +8,8 @@ load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 local_llm = "ollama/qwen2.5:14b"
 
 
-def make_crew(ticker1: str, ticker2: str, lookback_years: int = 5) -> tuple:
+def make_crew(ticker1: str, ticker2: str, lookback_years: int = 5,
+              n_pairs_in_composition: int = 1) -> tuple:
     """
     Instantiate a fresh two-agent crew locked to the given pair and lookback.
     Returns (quant_scout, signal_mathematician).
@@ -17,6 +18,7 @@ def make_crew(ticker1: str, ticker2: str, lookback_years: int = 5) -> tuple:
         expected_ticker1=ticker1,
         expected_ticker2=ticker2,
         lookback_years=lookback_years,
+        n_pairs_in_composition=n_pairs_in_composition,
     )
 
     quant_scout = Agent(

@@ -210,7 +210,12 @@ if __name__ == "__main__":
         log.info(f"START {ticker1}/{ticker2}  ({label})")
 
         lookback_years = pair.get("lookback_years", 5)
-        quant_scout, signal_mathematician = make_crew(ticker1, ticker2, lookback_years)
+        n_pairs = len(pairs)
+        quant_scout, signal_mathematician = make_crew(
+            ticker1, ticker2,
+            lookback_years=lookback_years,
+            n_pairs_in_composition=n_pairs,
+        )
         correlation_audit, quant_assessment = build_tasks(
             pair=pair,
             agents=(quant_scout, signal_mathematician)

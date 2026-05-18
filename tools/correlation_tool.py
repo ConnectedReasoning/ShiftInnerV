@@ -24,6 +24,7 @@ class CorrelationDecayTool(BaseTool):
     expected_ticker1: str = ""
     expected_ticker2: str = ""
     lookback_years: int = 5   # 1, 3, or 5 — default is full 5-year history
+    n_pairs_in_composition: int = 1  # used for Gate 1 threshold adjustment
 
     def _run(self, ticker1: str = "REMX", ticker2: str = "SOXX",
              window: int = None) -> str:
@@ -66,6 +67,25 @@ class CorrelationDecayTool(BaseTool):
             log_prices = pd.DataFrame(
                 {ticker1: log_p1.loc[shared_idx], ticker2: log_p2.loc[shared_idx]}
             ).dropna()
+
+            # ── Gate 1 threshold selection (Item 1 — multiple comparisons) ──
+            # The threshold used for Gate 1 depends on how many pairs are
+            # being tested in this composition. More pairs = higher threshold
+            # required to maintain the family-wise error rate.
+            n_pairs = self.n_pairs_in_composition
+            if n_pairs <= 10:
+                _gate1_ci_label = "95%"
+                _gate1_pass = lambda: is_cointegrated_95
+            elif n_pairs <= 30:
+                _gate1_ci_label = "99%"
+                _gate1_pass = lambda: is_cointegrated_99
+            else:
+                # For large compositions, require 99% CI AND trace ratio >= 1.3
+                _gate1_ci_label = "99%+ratio"
+                _gate1_pass = lambda: (
+                    is_cointegrated_99 and
+                    (trace_stat / crit_val_99 >= 1.3)
+                )
 
             # ── Window separation (Chan fix) ──────────────────────────────────────────
             # Training window: first 250 rows — used ONLY for Johansen eigenvector
@@ -289,8 +309,22 @@ class CorrelationDecayTool(BaseTool):
             report += f"  90% CI critical value: {crit_val_90:.4f}  — {'PASS' if is_cointegrated_90 else 'FAIL'}\n"
             report += f"  95% CI critical value: {crit_val_95:.4f}  — {'PASS' if is_cointegrated_95 else 'FAIL'}\n"
             report += f"  99% CI critical value: {crit_val_99:.4f}  — {'PASS' if is_cointegrated_99 else 'FAIL'}\n"
-            report += f"  Primary gate (95% CI): {'YES — STRUCTURAL TETHER CONFIRMED' if is_cointegrated else 'NO — STRUCTURAL TETHER UNCERTAIN'}\n"
-            if not is_cointegrated:
+            # Gate 1 uses composition-size-adjusted threshold
+            _gate1_result = _gate1_pass()
+            report += f"  Composition size: {n_pairs} pair(s) tested\n"
+            report += f"  Adjusted gate threshold: {_gate1_ci_label} CI\n"
+            report += (
+                f"  Primary gate ({_gate1_ci_label}): "
+                f"{'YES — STRUCTURAL TETHER CONFIRMED' if _gate1_result else 'NO — TETHER FAILS ADJUSTED THRESHOLD'}\n"
+            )
+            if is_cointegrated_95 and not _gate1_result:
+                report += (
+                    f"  NOTE: Pair passes standard 95% CI but fails the "
+                    f"{_gate1_ci_label} threshold required for a composition "
+                    f"of {n_pairs} pairs. Recommend treating as MONITOR rather "
+                    f"than ACTIVE. Would pass with n_pairs ≤ 10.\n"
+                )
+            if not is_cointegrated_95:
                 report += (
                     "  WARNING: Pair is NOT cointegrated at 95% CI (conservative k). Rolling correlation "
                     "patterns may not reflect a durable structural relationship.\n"
