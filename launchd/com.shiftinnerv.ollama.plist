@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <!-- Keeps ollama serve running persistently in the background.
+         launchd will restart it automatically if it crashes. -->
+    <key>Label</key>
+    <string>com.shiftinnerv.ollama</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/ollama</string>
+        <string>serve</string>
+    </array>
+
+    <!-- Start immediately when loaded, restart if it exits -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Volumes/Elessar/ShiftInnerV_Data/ollama.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Volumes/Elessar/ShiftInnerV_Data/ollama.log</string>
+
+</dict>
+</plist>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <!-- Unique identifier for this job -->
+    <key>Label</key>
+    <string>com.shiftinnerv.sentinel.evening</string>
+
+    <!-- Command to run — no --promoted flag, anomalies only -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/manuel/projects/github/ShiftInnerV/.venv/bin/python</string>
+        <string>/Users/manuel/projects/github/ShiftInnerV/sentinel.py</string>
+    </array>
+
+    <!-- Run at 18:00 every day -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>19</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Stdout and stderr go to the sentinel log -->
+    <key>StandardOutPath</key>
+    <string>/Volumes/Elessar/ShiftInnerV_Data/sentinel_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Volumes/Elessar/ShiftInnerV_Data/sentinel_launchd.log</string>
+
+    <!-- Working directory — project root -->
+    <key>WorkingDirectory</key>
+    <string>/Users/manuel/projects/github/ShiftInnerV</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+</dict>
+</plist>

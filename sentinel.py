@@ -2,40 +2,40 @@
 """
 ShiftInnerV — Sentinel
 
-Autonomous orchestrator. Start once, runs continuously.
+Single-run orchestrator. Designed to be called by launchd on a schedule.
+Runs once, does its work, exits. launchd handles the schedule and restarts.
 
-What it does:
-  1. Runs monitor.py on a schedule (default every 30 minutes)
-  2. Watches compositions/anomalies/ for new yaml files
-  3. Auto-triggers main.py on each new anomaly yaml
-  4. Once per day (default 06:00) runs main.py on the latest promoted composition
-  5. Logs all activity to DATA_STORAGE_PATH/sentinel.log
+What it does each run:
+  1. Runs monitor.py — scans all compositions, writes new anomaly yamls
+  2. Processes any new anomaly yamls through main.py (agents + dossier)
+  3. If --promoted flag: refreshes promote.py and runs main.py on best candidates
+  4. Exits
+
+launchd calls this at 07:00 (with --promoted) and 19:00 (anomalies only).
+See launchd/ directory for plist files.
 
 Usage:
-    python sentinel.py                        # start with defaults
-    python sentinel.py --interval 900         # monitor every 15 minutes
-    python sentinel.py --daily-run 07:00      # daily promoted run at 7am
-    python sentinel.py --no-daily             # skip daily promoted run
-    python sentinel.py --dry-run              # print config and exit
+    python sentinel.py                  # monitor + process new anomalies
+    python sentinel.py --promoted       # also run promoted composition
+    python sentinel.py --dry-run        # print config and exit
 
-Stop:
-    Ctrl+C  (graceful shutdown — waits for current job to finish)
+Lock file:
+    Writes DATA_DIR/sentinel.lock on start, removes on exit.
+    If lock exists on start, a previous run is still in progress — exits immediately.
+    This prevents launchd overlap if a run takes longer than the schedule interval.
 
 Env (from ~/.shiftinnerv_env):
     DATA_STORAGE_PATH   base data dir (default ~/Projects/ShiftInnerV_Data)
+    TIINGO_KEY          Tiingo API key
     REPORT_DIR          report output dir
-    TIINGA_key          Tiingo API key
 """
 
 import os
 import sys
-import time
-import signal
 import logging
 import argparse
 import subprocess
-import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -49,44 +49,79 @@ DATA_DIR         = os.path.expanduser(
 COMPOSITIONS_DIR = os.path.join(PROJECT_DIR, "compositions")
 ANOMALY_DIR      = os.path.join(COMPOSITIONS_DIR, "anomalies")
 LOG_PATH         = os.path.join(DATA_DIR, "sentinel.log")
+LOCK_PATH        = os.path.join(DATA_DIR, "sentinel.lock")
 
 MONITOR_PY = os.path.join(PROJECT_DIR, "monitor.py")
 MAIN_PY    = os.path.join(PROJECT_DIR, "main.py")
 PROMOTE_PY = os.path.join(PROJECT_DIR, "promote.py")
 
-# ── Defaults ──────────────────────────────────────────────────────────────────
-DEFAULT_INTERVAL   = 1800   # seconds between monitor runs (30 min)
-DEFAULT_DAILY_TIME = "06:00"
-MAX_CONCURRENT     = 1      # one agent job at a time (Ollama is single-threaded)
+SEEN_PATH  = os.path.join(DATA_DIR, "sentinel_seen.txt")
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-def setup_logging(log_path: str) -> logging.Logger:
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+def setup_logging() -> logging.Logger:
+    os.makedirs(DATA_DIR, exist_ok=True)
     logger = logging.getLogger("sentinel")
     logger.setLevel(logging.INFO)
-
     fmt = logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
-
-    # File handler — persistent log
-    fh = logging.FileHandler(log_path)
+    fh = logging.FileHandler(LOG_PATH)
     fh.setFormatter(fmt)
     logger.addHandler(fh)
-
-    # Console handler
     ch = logging.StreamHandler(sys.stdout)
     ch.setFormatter(fmt)
     logger.addHandler(ch)
-
     return logger
+
+
+# ── Lock ──────────────────────────────────────────────────────────────────────
+
+def acquire_lock(log: logging.Logger) -> bool:
+    """Return True if lock acquired, False if another run is in progress."""
+    if os.path.exists(LOCK_PATH):
+        # Check if the PID in lock file is still running
+        try:
+            pid = int(open(LOCK_PATH).read().strip())
+            os.kill(pid, 0)   # signal 0 = check existence only
+            log.warning(f"Sentinel already running (PID {pid}) — exiting.")
+            return False
+        except (ValueError, OSError):
+            # Stale lock — previous run crashed without cleanup
+            log.warning("Stale lock file found — removing and continuing.")
+            os.remove(LOCK_PATH)
+
+    with open(LOCK_PATH, "w") as f:
+        f.write(str(os.getpid()))
+    return True
+
+
+def release_lock():
+    if os.path.exists(LOCK_PATH):
+        os.remove(LOCK_PATH)
+
+
+# ── Seen-file tracker ─────────────────────────────────────────────────────────
+
+def load_seen() -> set:
+    if os.path.exists(SEEN_PATH):
+        with open(SEEN_PATH) as f:
+            return set(line.strip() for line in f if line.strip())
+    return set()
+
+
+def save_seen(seen: set):
+    with open(SEEN_PATH, "w") as f:
+        f.write("\n".join(sorted(seen)))
 
 
 # ── Subprocess runner ─────────────────────────────────────────────────────────
 
 def run_subprocess(cmd: list, label: str, log: logging.Logger) -> bool:
-    """Run a subprocess, stream output to log, return True on success."""
+    """
+    Run subprocess. Stream stdout/stderr to log file only — not console.
+    Console gets one START and one END line per job.
+    """
     log.info(f"START  {label}")
     start = datetime.now()
     try:
@@ -100,11 +135,11 @@ def run_subprocess(cmd: list, label: str, log: logging.Logger) -> bool:
         for line in proc.stdout:
             line = line.rstrip()
             if line:
-                log.info(f"  │  {line}")
+                log.debug(f"  │  {line}")   # DEBUG — file only, not console
         proc.wait()
         elapsed = (datetime.now() - start).seconds
-        ok = proc.returncode == 0
-        status = "OK" if ok else f"EXIT {proc.returncode}"
+        ok      = proc.returncode == 0
+        status  = "OK" if ok else f"EXIT {proc.returncode}"
         log.info(f"END    {label} — {status} ({elapsed}s)")
         return ok
     except Exception as e:
@@ -112,238 +147,99 @@ def run_subprocess(cmd: list, label: str, log: logging.Logger) -> bool:
         return False
 
 
-# ── Anomaly watcher ───────────────────────────────────────────────────────────
+# ── Latest promoted yaml ──────────────────────────────────────────────────────
 
-class AnomalyWatcher:
-    """
-    Tracks which anomaly yaml files have already been processed.
-    Persists seen-set to DATA_DIR/sentinel_seen.txt so restarts don't reprocess.
-    """
-
-    def __init__(self, anomaly_dir: str, data_dir: str, log: logging.Logger):
-        self.anomaly_dir = anomaly_dir
-        self.seen_path   = os.path.join(data_dir, "sentinel_seen.txt")
-        self.log         = log
-        self.seen        = self._load_seen()
-        os.makedirs(anomaly_dir, exist_ok=True)
-
-    def _load_seen(self) -> set:
-        if os.path.exists(self.seen_path):
-            with open(self.seen_path) as f:
-                return set(line.strip() for line in f if line.strip())
-        return set()
-
-    def _save_seen(self):
-        with open(self.seen_path, "w") as f:
-            f.write("\n".join(sorted(self.seen)))
-
-    def new_files(self) -> list:
-        """Return list of anomaly yaml paths not yet processed."""
-        all_files = sorted(Path(self.anomaly_dir).glob("anomaly_*.yaml"))
-        new = [str(f) for f in all_files if str(f) not in self.seen]
-        return new
-
-    def mark_seen(self, path: str):
-        self.seen.add(path)
-        self._save_seen()
-
-
-# ── Daily run tracker ─────────────────────────────────────────────────────────
-
-class DailyRun:
-    """Tracks whether the daily promoted-composition run has fired today."""
-
-    def __init__(self, run_time_str: str, data_dir: str, log: logging.Logger):
-        self.h, self.m = map(int, run_time_str.split(":"))
-        self.state_path = os.path.join(data_dir, "sentinel_daily.txt")
-        self.log        = log
-
-    def _last_run_date(self) -> str:
-        if os.path.exists(self.state_path):
-            with open(self.state_path) as f:
-                return f.read().strip()
-        return ""
-
-    def _save_today(self):
-        with open(self.state_path, "w") as f:
-            f.write(datetime.now().strftime("%Y-%m-%d"))
-
-    def due(self) -> bool:
-        now = datetime.now()
-        if now.hour != self.h or now.minute != self.m:
-            return False
-        return self._last_run_date() != now.strftime("%Y-%m-%d")
-
-    def mark_done(self):
-        self._save_today()
-        self.log.info("Daily run marked complete for today.")
-
-
-# ── Get latest promoted yaml ──────────────────────────────────────────────────
-
-def latest_promoted(compositions_dir: str) -> str | None:
-    files = sorted(Path(compositions_dir).glob("promoted_*.yaml"), reverse=True)
+def latest_promoted() -> str | None:
+    files = sorted(Path(COMPOSITIONS_DIR).glob("promoted_*.yaml"), reverse=True)
     return str(files[0]) if files else None
 
 
-# ── Main sentinel loop ────────────────────────────────────────────────────────
-
-class Sentinel:
-
-    def __init__(self, args):
-        os.makedirs(DATA_DIR, exist_ok=True)
-        self.log         = setup_logging(LOG_PATH)
-        self.interval    = args.interval
-        self.no_daily    = args.no_daily
-        self.daily       = (DailyRun(args.daily_run, DATA_DIR, self.log)
-                            if not args.no_daily else None)
-        self.watcher     = AnomalyWatcher(ANOMALY_DIR, DATA_DIR, self.log)
-        self.job_lock    = threading.Lock()
-        self.shutdown    = threading.Event()
-        self.next_monitor = datetime.now()  # run immediately on start
-
-        signal.signal(signal.SIGINT,  self._handle_signal)
-        signal.signal(signal.SIGTERM, self._handle_signal)
-
-    def _handle_signal(self, signum, frame):
-        self.log.info("Shutdown signal received — finishing current job then exiting.")
-        self.shutdown.set()
-
-    # ── Monitor run ───────────────────────────────────────────────────────────
-
-    def run_monitor(self):
-        self.log.info(f"Monitor pass — scanning {COMPOSITIONS_DIR}")
-        run_subprocess(
-            [sys.executable, MONITOR_PY],
-            "monitor.py",
-            self.log,
-        )
-        self.next_monitor = datetime.now() + timedelta(seconds=self.interval)
-        self.log.info(f"Next monitor pass at {self.next_monitor.strftime('%H:%M:%S')}")
-
-    # ── Process new anomalies ─────────────────────────────────────────────────
-
-    def process_anomalies(self):
-        new = self.watcher.new_files()
-        if not new:
-            return
-        self.log.info(f"New anomaly file(s) detected: {len(new)}")
-        for path in new:
-            if self.shutdown.is_set():
-                break
-            label = os.path.basename(path)
-            with self.job_lock:
-                ok = run_subprocess(
-                    [sys.executable, MAIN_PY, "--pairs", path],
-                    f"main.py [{label}]",
-                    self.log,
-                )
-            self.watcher.mark_seen(path)
-            if not ok:
-                self.log.warning(f"main.py returned non-zero for {label} — marked seen, continuing.")
-
-    # ── Daily promoted run ────────────────────────────────────────────────────
-
-    def run_daily(self):
-        if self.no_daily or self.daily is None:
-            return
-        if not self.daily.due():
-            return
-
-        self.log.info("Daily promoted-composition run starting...")
-
-        # First regenerate promote to pick up latest screening data
-        run_subprocess(
-            [sys.executable, PROMOTE_PY],
-            "promote.py (daily refresh)",
-            self.log,
-        )
-
-        promoted = latest_promoted(COMPOSITIONS_DIR)
-        if not promoted:
-            self.log.warning("No promoted yaml found — skipping daily run.")
-            self.daily.mark_done()
-            return
-
-        self.log.info(f"Daily run target: {os.path.basename(promoted)}")
-        with self.job_lock:
-            run_subprocess(
-                [sys.executable, MAIN_PY, "--pairs", promoted],
-                f"main.py [daily — {os.path.basename(promoted)}]",
-                self.log,
-            )
-        self.daily.mark_done()
-
-    # ── Main loop ─────────────────────────────────────────────────────────────
-
-    def run(self):
-        self.log.info("=" * 60)
-        self.log.info("ShiftInnerV Sentinel — starting")
-        self.log.info(f"  Monitor interval : {self.interval}s ({self.interval//60}m)")
-        self.log.info(f"  Daily run        : {'disabled' if self.no_daily else args.daily_run}")
-        self.log.info(f"  Anomaly dir      : {ANOMALY_DIR}")
-        self.log.info(f"  Log              : {LOG_PATH}")
-        self.log.info("=" * 60)
-
-        while not self.shutdown.is_set():
-            now = datetime.now()
-
-            # ── Monitor pass ──────────────────────────────────────────────────
-            if now >= self.next_monitor:
-                self.run_monitor()
-
-            # ── New anomalies ─────────────────────────────────────────────────
-            self.process_anomalies()
-
-            # ── Daily run ─────────────────────────────────────────────────────
-            self.run_daily()
-
-            # ── Sleep 60s then check again ────────────────────────────────────
-            self.shutdown.wait(timeout=60)
-
-        self.log.info("Sentinel shut down cleanly.")
-
-
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
-        description="ShiftInnerV Sentinel — autonomous orchestrator"
+        description="ShiftInnerV Sentinel — single-run orchestrator"
     )
     parser.add_argument(
-        "--interval", type=int, default=DEFAULT_INTERVAL,
-        help=f"Seconds between monitor passes (default: {DEFAULT_INTERVAL})"
-    )
-    parser.add_argument(
-        "--daily-run", type=str, default=DEFAULT_DAILY_TIME, metavar="HH:MM",
-        help=f"Time to run daily promoted composition (default: {DEFAULT_DAILY_TIME})"
-    )
-    parser.add_argument(
-        "--no-daily", action="store_true",
-        help="Disable the daily promoted-composition run"
+        "--promoted", action="store_true",
+        help="Also refresh and run the promoted composition (use for morning run)"
     )
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Print configuration and exit without running"
     )
-    global args
     args = parser.parse_args()
 
     if args.dry_run:
         print("ShiftInnerV Sentinel — configuration")
-        print(f"  Monitor interval : {args.interval}s ({args.interval//60}m)")
-        print(f"  Daily run        : {'disabled' if args.no_daily else args.daily_run}")
-        print(f"  Project dir      : {PROJECT_DIR}")
-        print(f"  Anomaly dir      : {ANOMALY_DIR}")
-        print(f"  Data dir         : {DATA_DIR}")
-        print(f"  Log              : {LOG_PATH}")
-        print(f"  monitor.py       : {'✅' if os.path.exists(MONITOR_PY) else '❌ NOT FOUND'}")
-        print(f"  main.py          : {'✅' if os.path.exists(MAIN_PY) else '❌ NOT FOUND'}")
-        print(f"  promote.py       : {'✅' if os.path.exists(PROMOTE_PY) else '❌ NOT FOUND'}")
+        print(f"  Project dir  : {PROJECT_DIR}")
+        print(f"  Anomaly dir  : {ANOMALY_DIR}")
+        print(f"  Data dir     : {DATA_DIR}")
+        print(f"  Log          : {LOG_PATH}")
+        print(f"  Lock         : {LOCK_PATH}")
+        print(f"  Seen file    : {SEEN_PATH}")
+        print(f"  monitor.py   : {'✅' if os.path.exists(MONITOR_PY) else '❌ NOT FOUND'}")
+        print(f"  main.py      : {'✅' if os.path.exists(MAIN_PY) else '❌ NOT FOUND'}")
+        print(f"  promote.py   : {'✅' if os.path.exists(PROMOTE_PY) else '❌ NOT FOUND'}")
+        print(f"  --promoted   : {args.promoted}")
         return
 
-    sentinel = Sentinel(args)
-    sentinel.run()
+    log = setup_logging()
+
+    # ── Lock ──────────────────────────────────────────────────────────────────
+    if not acquire_lock(log):
+        sys.exit(0)
+
+    try:
+        log.info("=" * 55)
+        log.info(f"Sentinel run — {datetime.now().strftime('%Y-%m-%d %H:%M')}  "
+                 f"promoted={args.promoted}")
+        log.info("=" * 55)
+
+        # ── Step 1: Monitor pass ──────────────────────────────────────────────
+        run_subprocess([sys.executable, MONITOR_PY], "monitor.py", log)
+
+        # ── Step 2: Process new anomaly yamls ─────────────────────────────────
+        seen     = load_seen()
+        all_yaml = sorted(Path(ANOMALY_DIR).glob("anomaly_*.yaml"))
+        new_yaml = [str(f) for f in all_yaml if str(f) not in seen]
+
+        if new_yaml:
+            log.info(f"New anomaly files: {len(new_yaml)}")
+            for path in new_yaml:
+                label = os.path.basename(path)
+                ok    = run_subprocess(
+                    [sys.executable, MAIN_PY, "--pairs", path],
+                    f"main.py [{label}]",
+                    log,
+                )
+                seen.add(path)
+                save_seen(seen)
+                if not ok:
+                    log.warning(f"main.py non-zero for {label} — marked seen, continuing.")
+        else:
+            log.info("No new anomaly files.")
+
+        # ── Step 3: Promoted composition run (morning only) ───────────────────
+        if args.promoted:
+            log.info("Promoted run requested — refreshing promote.py...")
+            run_subprocess([sys.executable, PROMOTE_PY, "--quiet"], "promote.py", log)
+
+            promoted = latest_promoted()
+            if promoted:
+                log.info(f"Running promoted: {os.path.basename(promoted)}")
+                run_subprocess(
+                    [sys.executable, MAIN_PY, "--pairs", promoted],
+                    f"main.py [promoted]",
+                    log,
+                )
+            else:
+                log.warning("No promoted yaml found — skipping.")
+
+        log.info("Sentinel run complete.")
+
+    finally:
+        release_lock()
 
 
 if __name__ == "__main__":

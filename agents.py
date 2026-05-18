@@ -32,7 +32,7 @@ def make_crew(ticker1: str, ticker2: str, lookback_years: int = 5) -> tuple:
     That is the entirety of your job.""",
         llm=local_llm,
         tools=[correlation_tool],
-        verbose=True,
+        verbose=False,
         allow_delegation=False,
         max_iter=3,
         max_rpm=15
@@ -86,7 +86,7 @@ def make_crew(ticker1: str, ticker2: str, lookback_years: int = 5) -> tuple:
     You never speculate about why a pattern exists. You only assess
     whether the pattern is statistically sound enough to trade.""",
         llm=local_llm,
-        verbose=True,
+        verbose=False,
         allow_delegation=False,
         max_iter=5,
         max_rpm=15

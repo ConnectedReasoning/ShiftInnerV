@@ -18,7 +18,7 @@ Usage:
     python dossier.py AAPL MSFT --save --quiet  # save without terminal output
 
 Env (loaded from ~/.shiftinnerv_env — same file as monitor.py):
-    TIINGA_key          Tiingo API key
+    TIINGA_KEY          Tiingo API key
     REPORT_DIR          where to write saved dossiers (default: ~/Projects/ShiftInnerV_Data/reports)
 """
 
@@ -40,7 +40,7 @@ except ImportError:
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
-TIINGO_KEY = os.getenv("TIINGA_key", "")
+TIINGO_KEY = os.getenv("TIINGA_KEY", "")
 REPORT_DIR = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
 
 TIINGO_HEADERS = {"Content-Type": "application/json"}
@@ -318,7 +318,7 @@ def render_dossier(
     prices2 = tiingo_prices(ticker2, lookback_days)
 
     if prices1 is None or prices2 is None:
-        p("  ERROR: Could not fetch price data. Check TIINGA_key in ~/.shiftinnerv_env")
+        p("  ERROR: Could not fetch price data. Check TIINGA_KEY in ~/.shiftinnerv_env")
         spread_data = {}
     else:
         p(f"  {ticker1}: {len(prices1)} bars  last={prices1.iloc[-1]:.2f}")
@@ -442,7 +442,7 @@ def main():
     args = parser.parse_args()
 
     if not TIINGO_KEY:
-        print("ERROR: TIINGA_key not set in ~/.shiftinnerv_env")
+        print("ERROR: TIINGA_KEY not set in ~/.shiftinnerv_env")
         sys.exit(1)
 
     report = render_dossier(args.ticker1, args.ticker2, args.lookback)

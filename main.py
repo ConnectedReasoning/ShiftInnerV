@@ -152,44 +152,69 @@ def extract_search_findings(raw: str) -> str:
     return stripped
 
 
+# ── Logging setup ────────────────────────────────────────────────────────────
+import logging
+import sys as _sys
+
+def _setup_log():
+    log_path = os.path.join(data_dir, "main.log")
+    os.makedirs(data_dir, exist_ok=True)
+    logger = logging.getLogger("main")
+    logger.setLevel(logging.DEBUG)
+    fmt = logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s",
+                            datefmt="%Y-%m-%d %H:%M:%S")
+    fh = logging.FileHandler(log_path)
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+    return logger, log_path
+
 # ── Run the crew for each pair ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print(f"ShiftInnerV — Shadow Audit — {date.today()}")
-    print(f"Loaded {len(pairs)} pair(s) from pairs.yaml\n")
+    from datetime import datetime
+    log, log_path = _setup_log()
 
-    # ── Ensure data is present and fresh before running agents ───────────────
-    tickers = tickers_from_pairs(pairs)
-    print(f"Checking data for: {', '.join(tickers)}")
+    n      = len(pairs)
+    source = os.path.basename(pairs_path)
+    print(f"ShiftInnerV  {date.today()}  |  {n} pair(s) from {source}")
+    print(f"Log → {log_path}")
+    print()
+    log.info(f"=== RUN START  {source}  ({n} pairs) ===")
+
+    # ── Ensure data ───────────────────────────────────────────────────────────
+    tickers     = tickers_from_pairs(pairs)
     data_status = ensure_data(tickers, data_dir)
+    failed      = [t for t, s in data_status.items() if s == "failed"]
 
-    failed = [t for t, s in data_status.items() if s == "failed"]
+    for t, s in data_status.items():
+        log.info(f"  data  {t}: {s}")
+
     if failed:
-        print(f"\n  WARNING: Failed to fetch data for: {', '.join(failed)}")
-        print("  Agents will error on these tickers. Check your connection.\n")
-    else:
-        print()
+        print(f"  ⚠️  Data fetch failed: {', '.join(failed)}")
+        log.warning(f"Data fetch failed: {', '.join(failed)}")
 
     # ── Run crew for each pair ────────────────────────────────────────────────
-    for pair in pairs:
+    verdicts = []
+
+    for i, pair in enumerate(pairs, 1):
         ticker1 = pair["ticker1"]
         ticker2 = pair["ticker2"]
         label   = pair["label"]
 
         if ticker1 in failed or ticker2 in failed:
-            print(f"Skipping {label} — missing data for one or both tickers.\n")
+            print(f"  [{i:>3}/{n}]  SKIP   {ticker1}/{ticker2}  — missing data")
+            log.warning(f"SKIP {ticker1}/{ticker2} — missing data")
             continue
 
-        print(f"Running Truth Squad: {label} ({ticker1} / {ticker2})\n")
+        print(f"  [{i:>3}/{n}]  ...    {ticker1}/{ticker2}  {label}", end="", flush=True)
+        log.info(f"START {ticker1}/{ticker2}  ({label})")
 
-        # Fresh agents per pair — correlation tool locked to this pair's tickers
         lookback_years = pair.get("lookback_years", 5)
         quant_scout, signal_mathematician = make_crew(ticker1, ticker2, lookback_years)
-
         correlation_audit, quant_assessment = build_tasks(
             pair=pair,
             agents=(quant_scout, signal_mathematician)
         )
-
         crew = Crew(
             agents=[quant_scout, signal_mathematician],
             tasks=[correlation_audit, quant_assessment],
@@ -197,37 +222,50 @@ if __name__ == "__main__":
             verbose=False
         )
 
-        # ── Run crew with error isolation ────────────────────────────────────
         crew_error = None
         try:
             result = crew.kickoff()
         except Exception as e:
             crew_error = str(e)
-            print(f"  WARNING: Crew failed for {label} — {e}")
-            print(f"  Writing error report and continuing...\n")
+            log.error(f"Crew failed for {label}: {e}")
 
-        # ── Build appendix — clean outputs per agent role ────────────────────
+        # ── Extract verdict for console line ──────────────────────────────────
+        verdict_text  = str(result.raw) if not crew_error else ""
+        verdict_upper = verdict_text.upper()
+        if crew_error:
+            verdict_tag = "ERROR  "
+        elif "ACTIVE" in verdict_upper and "MONITOR" not in verdict_upper:
+            verdict_tag = "ACTIVE ✅"
+        elif "MONITOR-NEAR" in verdict_upper:
+            verdict_tag = "MONITOR-NEAR 👀"
+        elif "MONITOR" in verdict_upper:
+            verdict_tag = "MONITOR 👀"
+        else:
+            verdict_tag = "REJECT "
+
+        print(f"\r  [{i:>3}/{n}]  {verdict_tag:<16}  {ticker1}/{ticker2}  {label}")
+        log.info(f"VERDICT {ticker1}/{ticker2}: {verdict_tag.strip()}")
+        if verdict_text:
+            log.debug(f"FULL VERDICT:\n{verdict_text}")
+        verdicts.append((ticker1, ticker2, verdict_tag))
+
+        # ── Build appendix ────────────────────────────────────────────────────
         appendix_lines = []
         for task in [correlation_audit, quant_assessment]:
             if hasattr(task, "output") and task.output:
                 raw  = task.output.raw or ""
                 role = task.agent.role
-
-                if role == "Lead Quantitative Scout":
-                    cleaned = extract_report_text(raw)
-                else:
-                    cleaned = raw
-
+                cleaned = extract_report_text(raw) if role == "Lead Quantitative Scout" else raw
                 appendix_lines.append(f"### {role}\n")
                 appendix_lines.append(f"```\n{cleaned}\n```\n")
+                log.debug(f"TASK OUTPUT [{role}]:\n{cleaned}")
 
         # ── Write report ──────────────────────────────────────────────────────
-        from datetime import datetime
         safe_label = label.lower()
         safe_label = "".join(c if c.isalnum() or c in "-_ " else "" for c in safe_label)
         safe_label = safe_label.strip().replace(" ", "_")
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
-        filename = f"{safe_label}_{ticker1}_{ticker2}_{timestamp}.md"
+        timestamp  = datetime.now().strftime("%Y-%m-%d_%H%M")
+        filename   = f"{safe_label}_{ticker1}_{ticker2}_{timestamp}.md"
         report_path = os.path.join(report_dir, filename)
 
         with open(report_path, "w") as f:
@@ -245,43 +283,40 @@ if __name__ == "__main__":
             f.write("## Appendix: Tool Execution Log\n\n")
             f.write("\n".join(appendix_lines))
 
-        print(f"Report written to: {report_path}\n")
+        log.info(f"REPORT  → {report_path}")
 
-        # ── Trigger dossier for actionable verdicts ───────────────────────────
-        verdict_text = str(result.raw) if not crew_error else ""
-        verdict_upper = verdict_text.upper()
-        is_actionable = (
-            "ACTIVE" in verdict_upper or
-            "MONITOR-NEAR" in verdict_upper
+        # ── Dossier on actionable verdicts ────────────────────────────────────
+        is_actionable = not crew_error and (
+            "ACTIVE" in verdict_upper or "MONITOR-NEAR" in verdict_upper
         )
-
-        if is_actionable and not crew_error:
-            print(f"  ✅  Actionable verdict detected — generating dossier for {ticker1}/{ticker2}...")
+        if is_actionable:
             try:
-                lookback_days = pair.get("lookback_years", 5) * 252 // 12  # ~months to days
-                lookback_days = min(max(lookback_days, 60), 180)           # clamp 60–180d
+                lookback_days = pair.get("lookback_years", 5) * 252 // 12
+                lookback_days = min(max(lookback_days, 60), 180)
                 dossier_text  = render_dossier(ticker1, ticker2, lookback_days)
-
-                # Save alongside the crew report
-                dossier_filename = f"dossier_{ticker1}_{ticker2}_{timestamp}.md"
-                dossier_path     = os.path.join(report_dir, dossier_filename)
+                dossier_path  = os.path.join(report_dir, f"dossier_{ticker1}_{ticker2}_{timestamp}.md")
                 with open(dossier_path, "w") as f:
                     f.write(dossier_text)
-                print(f"  Dossier written to: {dossier_path}\n")
+                print(f"         ↳ dossier → {dossier_path}")
+                log.info(f"DOSSIER → {dossier_path}")
             except Exception as e:
-                print(f"  WARNING: Dossier generation failed for {label} — {e}\n")
+                log.warning(f"Dossier failed for {label}: {e}")
 
-    # ── Auto-promote after all pairs processed ────────────────────────────────
-    # Reads screening table, applies quality filters, writes focused composition
-    # ready for the next main.py run. Silently skips if no candidates pass.
+    # ── Summary ───────────────────────────────────────────────────────────────
+    actives  = [v for v in verdicts if "ACTIVE"  in v[2]]
+    monitors = [v for v in verdicts if "MONITOR" in v[2]]
+    rejects  = [v for v in verdicts if "REJECT"  in v[2]]
+    print()
+    print(f"  Done  {len(verdicts)} pair(s) — "
+          f"ACTIVE: {len(actives)}  MONITOR: {len(monitors)}  REJECT: {len(rejects)}")
+    log.info(f"=== RUN END  ACTIVE:{len(actives)} MONITOR:{len(monitors)} REJECT:{len(rejects)} ===")
+
+    # ── Auto-promote ──────────────────────────────────────────────────────────
     if len(pairs) > 1:
-        print("Running promote.py — building next focused composition from screening DB...")
         try:
-            promoted_path = promote_run(quiet=False)
+            promoted_path = promote_run(quiet=True)
             if promoted_path:
-                print(f"  ✅  Promoted composition ready: {promoted_path}")
-                print(f"  To run agents on it: python main.py --pairs {promoted_path}\n")
-            else:
-                print("  No candidates met promotion filters — skipping.\n")
+                print(f"  Promoted → {promoted_path}")
+                log.info(f"PROMOTED → {promoted_path}")
         except Exception as e:
-            print(f"  WARNING: promote.py failed — {e}\n")
+            log.warning(f"promote.py failed: {e}")
