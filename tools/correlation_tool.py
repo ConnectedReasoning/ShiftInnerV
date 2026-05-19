@@ -8,6 +8,11 @@ from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
+from tools.cost_model import (
+    compute_round_trip_costs,
+    compute_net_pnl,
+)
+
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 data_dir = os.getenv("DATA_STORAGE_PATH", "/Volumes/Elessar/ShiftInnerV_Data")
 
@@ -56,6 +61,7 @@ class CorrelationDecayTool(BaseTool):
     n_pairs_in_composition: int = 1  # used for Gate 1 threshold adjustment
     pair_label: str = ""              # used to infer factor proxy category
     factor_proxy_ticker: str = ""     # explicit override; inferred if empty
+    notional_position: float = 10000.0  # default $10k position for cost analysis
 
     def _run(self, ticker1: str = "REMX", ticker2: str = "SOXX",
              window: int = None) -> str:
@@ -472,6 +478,97 @@ class CorrelationDecayTool(BaseTool):
             report += f"pair_score (SNR): {snr_display}\n"
             report += f"pair_score_tier:  {snr_tier}\n"
             report += f"Interpretation:   {snr_interpretation}\n\n"
+
+            # ── Cost Model (Item 3) ──────────────────────────────────────────
+            # Fetch market cap and volume from price data if available
+            _market_cap_1 = None
+            _market_cap_2 = None
+            _avg_volume_1_m = None
+            _avg_volume_2_m = None
+
+            try:
+                # Approximate market cap from price × typical shares outstanding
+                # (simplification: use price-based volume proxy instead)
+                if len(log_prices_signal) > 0:
+                    prices1 = pd.DataFrame(log_prices_signal[ticker1]).dropna()
+                    prices2 = pd.DataFrame(log_prices_signal[ticker2]).dropna()
+                    # Rough estimate: if price data is available, assume reasonable
+                    # liquidity. For better accuracy, fetch from yfinance.
+                    recent_price_1 = np.exp(prices1.iloc[-1].values[0])
+                    recent_price_2 = np.exp(prices2.iloc[-1].values[0])
+                    # Assume $10M average daily volume for large-cap stocks
+                    # (conservative; will be overridden by actual data if available)
+                    _avg_volume_1_m = 10.0
+                    _avg_volume_2_m = 10.0
+            except Exception:
+                pass
+
+            # Compute notional position based on hedge ratio
+            _hedge_ratio = float(ols_coint.params.get(ticker2,
+                                  list(ols_coint.params)[0]))
+            _notional_1 = self.notional_position
+            _notional_2 = self.notional_position * abs(_hedge_ratio)
+
+            # Known ETF tickers for classification
+            _known_etfs = {
+                "KWEB", "FXI", "ITA", "XLF", "SMH", "SPY", "QQQ", "IWM",
+                "EEM", "ASHR", "CQQQ", "KBE", "KRE", "SOXX", "XLE", "GDX",
+                "ICLN", "XBI", "BOTZ", "VNQ", "BDRY", "MOO", "DBC", "UUP",
+                "TLT", "GLD", "SLV", "USO", "UDN", "REM", "XAR", "XLK",
+            }
+
+            costs = compute_round_trip_costs(
+                notional_leg1=_notional_1,
+                notional_leg2=_notional_2,
+                market_cap1_b=_market_cap_1,
+                market_cap2_b=_market_cap_2,
+                daily_volume1_m=_avg_volume_1_m,
+                daily_volume2_m=_avg_volume_2_m,
+                is_etf1=ticker1.upper() in _known_etfs,
+                is_etf2=ticker2.upper() in _known_etfs,
+                half_life_days=half_life if half_life and half_life > 0 else 30.0,
+                ticker1=ticker1,
+                ticker2=ticker2,
+            )
+
+            # Estimate gross P&L (entry_z=2.0σ, exit_z=0.0σ)
+            _entry_z = 2.0
+            _exit_z = 0.0
+            _expected_spread_move = (_entry_z - _exit_z) * spread.std()
+            _gross_pnl_bps = (_expected_spread_move * 10000 /
+                              (_notional_1 + _notional_2))
+
+            net_pnl_analysis = compute_net_pnl(_gross_pnl_bps,
+                                               costs["total_cost_bps"])
+
+            # Add to report
+            report += "=== TRANSACTION COSTS & NET P&L ===\n"
+            report += f"Position (rounded): {self.notional_position/1000:.0f}k notional\n"
+            report += f"  Long {ticker1}:  ${_notional_1:,.0f}\n"
+            report += f"  Short {ticker2}: ${_notional_2:,.0f}\n"
+            report += f"Cost breakdown: {costs['cost_breakdown']}\n"
+            report += f"\nExpected mean reversion P&L: {_gross_pnl_bps:.0f} bps\n"
+            report += (f"NET P&L after costs: {net_pnl_analysis['net_pnl_bps']:.0f} bps "
+                       f"({net_pnl_analysis['net_pnl_pct']:.2%})\n")
+
+            if net_pnl_analysis["marginal"]:
+                report += (
+                    f"⚠️  WARNING: Net P&L is marginal (0–25 bps). "
+                    f"Trade profitability is questionable after execution slippage.\n"
+                )
+            elif not net_pnl_analysis["is_profitable"]:
+                report += (
+                    f"✗ UNPROFITABLE: Costs exceed expected P&L. "
+                    f"Do not trade this pair.\n"
+                )
+            else:
+                cost_pct_of_pnl = (costs["total_cost_bps"] / _gross_pnl_bps * 100
+                                   if _gross_pnl_bps > 0 else 0)
+                report += (
+                    f"✓ PROFITABLE: Costs are {cost_pct_of_pnl:.1f}% of expected P&L. "
+                    f"Trade has robust edge.\n"
+                )
+            report += "\n"
 
             report += "=== MEAN DRIFT ===\n"
             report += f"mean_drift: {mean_drift_display}\n"

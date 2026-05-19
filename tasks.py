@@ -115,7 +115,7 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
       Note: Gate 4 FAIL results in MONITOR verdict, not REJECT.
       CRITICAL: Never write PASS if fewer than 2 episodes were detected.
 
-    Gate 5 — All gates pass (Gates 1-4) -> provisionally ACTIVE
+    Gate 5 — All gates pass (Gates 1-4, 6, 7) -> provisionally ACTIVE
 
     Gate 6 — Common Factor Exposure (from Scout report section
               "=== GATE 6 — COMMON FACTOR EXPOSURE ===")
@@ -127,6 +127,17 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
       SKIPPED_*:            proceed on Gates 1-4; add note in verdict:
                             "Gate 6 factor diagnostic unavailable. Manual
                              sector check recommended before entry."
+
+    Gate 7 — Net P&L after costs (Item 3)
+      Read "=== TRANSACTION COSTS & NET P&L ===" from the Scout's report.
+      Extract the "NET P&L after costs:" value in bps.
+      If net_pnl_bps > 25:           PASS — costs do not disqualify
+      If 0 <= net_pnl_bps <= 25:     MARGINAL — downgrade ACTIVE → MONITOR
+                                     (execution risk high; edge may not survive slippage)
+      If net_pnl_bps < 0:            UNPROFITABLE — downgrade ACTIVE → REJECT
+                                     (costs exceed expected P&L; do not trade)
+      If section absent from report: SKIPPED — proceed on Gates 1-6 alone;
+                                     note "Gate 7 cost data unavailable."
 
     STEP 3 — For ACTIVE verdicts only, compute and report:
     - Entry threshold: spread z-score >= 2.0 standard deviations from mean
@@ -158,6 +169,7 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
     Gate 3 SNR:           [PASS/FAIL] — [one line with numeric SNR value and tier]
     Gate 4 Episodes:      [PASS/FAIL/N/A] — [one line with episode count; N/A if prior gate failed]
     Gate 6 Factor Exposure: [PASS/FACTOR_CONTAMINATED/SKIPPED] — [one line]
+    Gate 7 Net P&L:         [PASS/MARGINAL/UNPROFITABLE/SKIPPED] — [net_pnl_bps bps, net_pnl_pct %]
 
     VERDICT: [REJECT / MONITOR / ACTIVE]
 

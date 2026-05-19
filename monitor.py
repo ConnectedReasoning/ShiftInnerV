@@ -30,6 +30,10 @@ from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from data_manager import ensure_data
 from scipy import stats as _scipy_stats
+from tools.cost_model import (
+    compute_round_trip_costs,
+    compute_net_pnl,
+)
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
@@ -274,6 +278,49 @@ def analyze_pair(ticker1: str, ticker2: str, label: str = "",
     # Johansen trend — is cointegration strengthening or weakening?
     trace_trend = compute_johansen_trend(log_prices)
 
+    # ── Item 3: Simplified cost model for screening ──────────────────────────
+    # Assume $10k notional with standard large-cap liquidity
+    _known_etfs = {
+        "KWEB", "FXI", "ITA", "XLF", "SMH", "SPY", "QQQ", "IWM",
+        "EEM", "ASHR", "CQQQ", "KBE", "KRE", "SOXX", "XLE", "GDX",
+        "ICLN", "XBI", "BOTZ", "VNQ", "BDRY", "MOO", "DBC", "UUP",
+        "TLT", "GLD", "SLV", "USO", "UDN", "REM", "XAR", "XLK",
+    }
+    _notional_1_screen = 10000.0
+    _notional_2_screen = _notional_1_screen * (abs(hl) / abs(hl) if hl else 1.0)
+
+    costs_screen = compute_round_trip_costs(
+        notional_leg1=_notional_1_screen,
+        notional_leg2=_notional_2_screen,
+        market_cap1_b=None,      # unknown at screening layer
+        market_cap2_b=None,
+        daily_volume1_m=None,    # assume defaults
+        daily_volume2_m=None,
+        is_etf1=ticker1.upper() in _known_etfs,
+        is_etf2=ticker2.upper() in _known_etfs,
+        half_life_days=hl or 30.0,
+        ticker1=ticker1,
+        ticker2=ticker2,
+    )
+
+    # Gross P&L estimate (entry=2.0σ, exit=0.0σ)
+    # Use SNR to estimate spread volatility
+    if snr and snr > 0:
+        # SNR = var(stationary) / var(nonstationary)
+        # Approximate spread_std from overall price volatility
+        if ticker1 in log_prices.columns and len(log_prices) > 20:
+            price_returns = log_prices[ticker1].diff().dropna()
+            spread_std_estimate = price_returns.std() * (1 + 1 / snr) ** 0.5
+        else:
+            spread_std_estimate = 0.04  # default
+        _gross_pnl_screen = (2.0 - 0.0) * spread_std_estimate * 10000 / \
+                            (_notional_1_screen + _notional_2_screen)
+    else:
+        _gross_pnl_screen = 100.0  # default if SNR unknown
+
+    net_pnl_screen = compute_net_pnl(_gross_pnl_screen,
+                                     costs_screen["total_cost_bps"])
+
     # Continuous score
     scoring = compute_score(
         trace_stat=trace_stat or 0,
@@ -283,6 +330,7 @@ def analyze_pair(ticker1: str, ticker2: str, label: str = "",
         snr=snr,
         episodes=len(episodes),
         trace_trend=trace_trend,
+        net_pnl_bps=net_pnl_screen["net_pnl_bps"],
     )
 
     return {
@@ -309,6 +357,11 @@ def analyze_pair(ticker1: str, ticker2: str, label: str = "",
         "score_breakdown": scoring,
         "rating":          score_label(scoring["score"]),
         "suspicious":      scoring["suspicious"],
+        "net_pnl_bps":     net_pnl_screen["net_pnl_bps"],
+        "net_pnl_pct":     net_pnl_screen["net_pnl_pct"],
+        "costs_bps":       costs_screen["total_cost_bps"],
+        "is_profitable":   net_pnl_screen["is_profitable"],
+        "marginal_edge":   net_pnl_screen["marginal"],
     }
 
 
@@ -374,7 +427,8 @@ def log_screening(result: dict):
 
 def compute_score(trace_stat: float, crit_90: float, crit_95: float,
                   half_life: float, snr: float, episodes: int,
-                  trace_trend: float = 0.0) -> dict:
+                  trace_trend: float = 0.0,
+                  net_pnl_bps: float = None) -> dict:
     """
     Compute a continuous 0-100 pair quality score.
 
@@ -458,6 +512,20 @@ def compute_score(trace_stat: float, crit_90: float, crit_95: float,
 
     total = coint_score + hl_score + snr_score + ep_score + trend_score
 
+    # ── Item 3: Penalise marginal or unprofitable edges ──────────────────────
+    cost_penalty = 0.0
+    cost_note = None
+    if net_pnl_bps is not None:
+        if net_pnl_bps < 0:
+            # Unprofitable: zero out the score entirely
+            total = 0.0
+            cost_note = f"zeroed (net_pnl={net_pnl_bps:.0f} bps < 0)"
+        elif net_pnl_bps < 25:
+            # Marginal edge: 10-point penalty
+            cost_penalty = 10.0
+            total = max(0.0, total - cost_penalty)
+            cost_note = f"−{cost_penalty:.0f}pts (net_pnl={net_pnl_bps:.0f} bps marginal)"
+
     # Suspicious SNR flag
     suspicious = snr is not None and snr > 1000
 
@@ -470,6 +538,8 @@ def compute_score(trace_stat: float, crit_90: float, crit_95: float,
         "trend_score":  round(trend_score, 1),
         "trace_ratio":  round(ratio, 3),
         "suspicious":   suspicious,
+        "cost_penalty": cost_penalty,
+        "cost_note":    cost_note,
     }
 
 
