@@ -11,7 +11,7 @@ load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
 from agents import make_crew
 from tasks import build_tasks
-from data_manager import ensure_data, tickers_from_pairs
+from data_manager import ensure_data, tickers_from_pairs, check_data_staleness
 from dossier import render_dossier
 from promote import run as promote_run
 from trial_ledger import (
@@ -30,6 +30,13 @@ from tools.composition_monitor import (
 data_dir   = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
 report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
 os.makedirs(report_dir, exist_ok=True)
+
+# ── Item 5: Staleness threshold ───────────────────────────────────────────────
+# 26 h = 1 trading day (close → next open) + overnight buffer.
+# Override via env for testing: export PRICE_DATA_STALENESS_HOURS=999
+PRICE_DATA_STALENESS_THRESHOLD_HOURS = int(
+    os.getenv("PRICE_DATA_STALENESS_HOURS", "26")
+)
 
 # ── Item 15: Composition concentration limits (gate override) ─────────────────
 # Default: 2 simultaneous open positions per composition.
@@ -50,6 +57,16 @@ parser.add_argument(
     type=str,
     default=None,
     help="Path to a pairs yaml file (default: pairs.yaml in project root)"
+)
+parser.add_argument(
+    "--staleness-hours",
+    type=int,
+    default=None,
+    help=(
+        "Override price data staleness threshold in hours "
+        "(default: PRICE_DATA_STALENESS_HOURS env var, fallback 26). "
+        "Use 999 to skip the check during development."
+    ),
 )
 args = parser.parse_args()
 
@@ -257,7 +274,16 @@ if __name__ == "__main__":
     log.info(f"Loaded {len(compositions)} composition(s) for concentration tracking: "
              f"{', '.join(sorted(compositions.keys())) or '(none)'}")
 
+    # ── Item 5: Resolve effective staleness threshold ─────────────────────────
+    # CLI flag beats env var; env var beats compiled default.
+    effective_staleness_hours = (
+        args.staleness_hours
+        if args.staleness_hours is not None
+        else PRICE_DATA_STALENESS_THRESHOLD_HOURS
+    )
+
     # ── Ensure data ───────────────────────────────────────────────────────────
+    print(f"\n── Data Management (staleness threshold: {effective_staleness_hours}h) ─────────")
     tickers     = tickers_from_pairs(pairs)
     data_status = ensure_data(tickers, data_dir)
     failed      = [t for t, s in data_status.items() if s == "failed"]
@@ -268,6 +294,53 @@ if __name__ == "__main__":
     if failed:
         print(f"  ⚠️  Data fetch failed: {', '.join(failed)}")
         log.warning(f"Data fetch failed: {', '.join(failed)}")
+
+    # ── Item 5: Staleness check — hard abort if any data is too old ───────────
+    print(f"\n── Data Staleness Check ───────────────────────────────────────")
+    staleness_results = check_data_staleness(
+        tickers,
+        data_dir,
+        staleness_hours=effective_staleness_hours,
+        logger=log,
+    )
+
+    stale_tickers   = [t for t, s in staleness_results.items() if s == "stale"]
+    missing_tickers = [t for t, s in staleness_results.items() if s == "missing"]
+    fresh_count     = len([t for t, s in staleness_results.items() if s == "fresh"])
+
+    print(f"  Fresh: {fresh_count}")
+    if stale_tickers:
+        print(f"  ⚠️  STALE (too old): {', '.join(stale_tickers)}")
+    if missing_tickers:
+        print(f"  ✗ MISSING: {', '.join(missing_tickers)}")
+
+    if stale_tickers or missing_tickers:
+        problem_tickers = stale_tickers + missing_tickers
+        problem_desc = (
+            f"stale: {', '.join(stale_tickers)}" if stale_tickers else ""
+        )
+        if missing_tickers:
+            problem_desc += (
+                (" | " if problem_desc else "")
+                + f"missing: {', '.join(missing_tickers)}"
+            )
+
+        print(f"\n❌ ABORTING RUN: Price data is stale or missing")
+        print(f"   Problem tickers: {', '.join(problem_tickers)}")
+        print(f"   Threshold: {effective_staleness_hours} hours")
+        print(f"   To override (dev only): export PRICE_DATA_STALENESS_HOURS=999")
+
+        log.critical(
+            f"STALE_DATA ABORT: Cannot proceed with verdicts. "
+            f"{problem_desc}. "
+            f"Last update > {effective_staleness_hours} hours ago (or file missing). "
+            f"Check data source (Tiingo/yfinance) and re-run after data is fresh."
+        )
+
+        _sys.exit(1)
+
+    print(f"  ✓ All data is fresh. Proceeding with verdicts.")
+    log.info("Data staleness check PASSED. Proceeding with verdict generation.")
 
     # ── Run crew for each pair ────────────────────────────────────────────────
     verdicts = []

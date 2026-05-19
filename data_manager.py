@@ -85,3 +85,81 @@ def tickers_from_pairs(pairs: list) -> list:
         tickers.add(pair["ticker1"])
         tickers.add(pair["ticker2"])
     return sorted(tickers)
+
+
+def check_data_staleness(
+    tickers: list,
+    data_dir: str,
+    staleness_hours: int = 26,
+    logger=None,
+) -> dict:
+    """
+    Check if all required price files are fresh.
+
+    Returns a dict: {ticker -> freshness_status}
+    freshness_status: 'fresh' | 'stale' | 'missing'
+
+    Does NOT download; only checks existing files.
+    Use after ensure_data() to validate data is recent enough.
+
+    Parameters
+    ----------
+    tickers : list
+        Ticker symbols to check
+    data_dir : str
+        Directory containing ticker_daily.csv files
+    staleness_hours : int
+        Maximum age in hours before data is considered stale (default 26)
+    logger : logging.Logger
+        Optional logger for warnings
+
+    Returns
+    -------
+    dict mapping ticker -> 'fresh' | 'stale' | 'missing'
+    """
+    staleness_threshold = datetime.timedelta(hours=staleness_hours)
+    now = datetime.datetime.now()
+    results = {}
+
+    for ticker in tickers:
+        csv_path = os.path.join(data_dir, f"{ticker.lower()}_daily.csv")
+
+        if not os.path.exists(csv_path):
+            results[ticker] = "missing"
+            continue
+
+        mtime_timestamp = os.path.getmtime(csv_path)
+        mtime = datetime.datetime.fromtimestamp(mtime_timestamp)
+        age = now - mtime
+
+        if age > staleness_threshold:
+            age_hours = age.total_seconds() / 3600
+            results[ticker] = "stale"
+            msg = (
+                f"Data stale: {ticker} last updated {age_hours:.1f}h ago "
+                f"(threshold: {staleness_hours}h)"
+            )
+            if logger:
+                logger.warning(msg)
+            else:
+                print(f"  WARNING: {msg}")
+        else:
+            age_hours = age.total_seconds() / 3600
+            results[ticker] = "fresh"
+            if logger:
+                logger.debug(f"Data fresh: {ticker} ({age_hours:.1f}h old)")
+
+    return results
+
+
+def get_stalest_ticker(staleness_results: dict) -> tuple:
+    """
+    Find the first non-fresh ticker in the results.
+
+    Returns (ticker, status) for the first stale/missing entry,
+    or (None, 'all_fresh') if everything is fresh.
+    """
+    stale_tickers = [t for t, s in staleness_results.items() if s != "fresh"]
+    if not stale_tickers:
+        return None, "all_fresh"
+    return stale_tickers[0], staleness_results[stale_tickers[0]]
