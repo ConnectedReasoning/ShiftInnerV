@@ -526,8 +526,13 @@ def compute_score(trace_stat: float, crit_90: float, crit_95: float,
             total = max(0.0, total - cost_penalty)
             cost_note = f"−{cost_penalty:.0f}pts (net_pnl={net_pnl_bps:.0f} bps marginal)"
 
-    # Suspicious SNR flag
+    # Suspicious SNR flag — SNR > 1000 means var(trend) ≈ 0:
+    # the spread is dominated by noise but the trend component has
+    # collapsed, making the SNR ratio meaningless. Hard-cap score
+    # to WATCH ceiling (30) so these pairs cannot reach ACTIVE.
     suspicious = snr is not None and snr > 1000
+    if suspicious:
+        total = min(total, 30.0)
 
     return {
         "score":        round(total, 1),
@@ -540,6 +545,7 @@ def compute_score(trace_stat: float, crit_90: float, crit_95: float,
         "suspicious":   suspicious,
         "cost_penalty": cost_penalty,
         "cost_note":    cost_note,
+        "disqualified": f"suspicious_snr={snr:.0f}" if suspicious else None,
     }
 
 

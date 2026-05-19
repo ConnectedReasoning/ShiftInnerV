@@ -407,7 +407,17 @@ def main():
         # ── Step 2: Process new anomaly yamls ─────────────────────────────────
         seen     = load_seen()
         all_yaml = sorted(Path(ANOMALY_DIR).glob("anomaly_*.yaml"))
-        new_yaml = [str(f) for f in all_yaml if str(f) not in seen]
+
+        # Dedup by pair+lookback key, not full path — prevents reprocessing
+        # yesterday's yaml when today's hasn't been written yet.
+        # Key format: "anomaly_TICKER1_TICKER2_Nyr"  (strip trailing _DATE.yaml)
+        def _yaml_key(path: str) -> str:
+            stem = Path(path).stem          # e.g. anomaly_BAC_MS_3yr_2026-05-19
+            parts = stem.rsplit("_", 1)     # split off the date
+            return parts[0]                 # e.g. anomaly_BAC_MS_3yr
+
+        seen_keys = {_yaml_key(p) for p in seen}
+        new_yaml  = [str(f) for f in all_yaml if _yaml_key(str(f)) not in seen_keys]
 
         if new_yaml:
             log.info(f"New anomaly files: {len(new_yaml)}")
@@ -418,7 +428,7 @@ def main():
                     f"main.py [{label}]",
                     log,
                 )
-                seen.add(path)
+                seen.add(_yaml_key(path))
                 save_seen(seen)
                 if not ok:
                     log.warning(f"main.py non-zero for {label} — marked seen, continuing.")

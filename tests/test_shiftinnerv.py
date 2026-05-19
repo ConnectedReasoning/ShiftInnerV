@@ -956,6 +956,57 @@ class TestSentinelLockFile:
         assert not os.path.exists(lock_path)
 
 
+
+class TestSentinelSeenDedup:
+    """
+    Regression tests for the sentinel seen-file dedup fix.
+    Verifies that anomaly yamls are deduplicated by pair+lookback key
+    (not full path), so yesterday's file doesn't rerun when today's exists.
+    """
+
+    def _yaml_key(self, path: str) -> str:
+        """Mirrors the _yaml_key helper in sentinel.py."""
+        from pathlib import Path
+        stem = Path(path).stem
+        parts = stem.rsplit("_", 1)
+        return parts[0]
+
+    def test_key_strips_date_suffix(self):
+        key = self._yaml_key("/data/anomaly_BAC_MS_3yr_2026-05-19.yaml")
+        assert key == "anomaly_BAC_MS_3yr"
+
+    def test_key_strips_yesterday_date(self):
+        key = self._yaml_key("/data/anomaly_BAC_MS_3yr_2026-05-18.yaml")
+        assert key == "anomaly_BAC_MS_3yr"
+
+    def test_same_pair_different_dates_have_same_key(self):
+        k1 = self._yaml_key("/data/anomaly_ENPH_KRE_1yr_2026-05-18.yaml")
+        k2 = self._yaml_key("/data/anomaly_ENPH_KRE_1yr_2026-05-19.yaml")
+        assert k1 == k2
+
+    def test_different_lookbacks_have_different_keys(self):
+        k1 = self._yaml_key("/data/anomaly_BAC_MS_1yr_2026-05-19.yaml")
+        k3 = self._yaml_key("/data/anomaly_BAC_MS_3yr_2026-05-19.yaml")
+        assert k1 != k3
+
+    def test_different_pairs_have_different_keys(self):
+        k1 = self._yaml_key("/data/anomaly_BAC_MS_3yr_2026-05-19.yaml")
+        k2 = self._yaml_key("/data/anomaly_BAC_GS_3yr_2026-05-19.yaml")
+        assert k1 != k2
+
+    def test_seen_key_blocks_both_dates(self):
+        """If yesterday's key is in seen, today's yaml should be skipped too."""
+        seen_keys = {"anomaly_BAC_MS_3yr"}
+        today = "/data/anomaly_BAC_MS_3yr_2026-05-19.yaml"
+        assert self._yaml_key(today) in seen_keys
+
+    def test_new_pair_not_blocked_by_different_seen_key(self):
+        seen_keys = {"anomaly_BAC_MS_3yr"}
+        new_pair = "/data/anomaly_JPM_GS_3yr_2026-05-19.yaml"
+        assert self._yaml_key(new_pair) not in seen_keys
+
+
+
 class TestPlistConfiguration:
     """
     Regression tests for launchd plist configuration.

@@ -128,7 +128,13 @@ class RegimeDetector:
                     self.logger.warning("[regime] VIX download returned empty DataFrame.")
                 return self._last_vix  # return cached if available, else None
 
-            vix_close = float(vix_data["Close"].iloc[-1])
+            # yfinance >=0.2.x may return multi-level columns ("Close", "^VIX").
+            # Flatten to a plain Series/scalar before extracting the float.
+            close_col = vix_data["Close"]
+            if hasattr(close_col, "squeeze"):
+                close_col = close_col.squeeze()   # DataFrame -> Series or scalar
+            # squeeze() on a single-row single-col block returns a scalar directly
+            vix_close = float(close_col.iloc[-1] if hasattr(close_col, "iloc") else close_col)
             self._last_vix       = vix_close
             self._last_vix_fetch = datetime.now()
             return vix_close

@@ -194,7 +194,9 @@ class TestVIXCache:
         d._last_vix = 18.5
         d._last_vix_fetch = datetime.now() - timedelta(hours=2)
 
-        mock_df = pd.DataFrame({"Close": [21.0]})
+        # Simulate yfinance multi-level column format (Close, ^VIX)
+        cols = pd.MultiIndex.from_tuples([("Close", "^VIX")])
+        mock_df = pd.DataFrame([[21.0]], columns=cols)
         with patch("tools.regime_monitor.yf.download", return_value=mock_df):
             result = d.fetch_vix(use_cache=True)
 
@@ -205,7 +207,8 @@ class TestVIXCache:
         d._last_vix = 18.5
         d._last_vix_fetch = datetime.now()
 
-        mock_df = pd.DataFrame({"Close": [25.0]})
+        cols = pd.MultiIndex.from_tuples([("Close", "^VIX")])
+        mock_df = pd.DataFrame([[25.0]], columns=cols)
         with patch("tools.regime_monitor.yf.download", return_value=mock_df):
             result = d.fetch_vix(use_cache=False)
 
