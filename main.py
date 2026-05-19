@@ -20,6 +20,7 @@ from trial_ledger import (
     parse_statistical_snapshot,
     init_trial_ledger,
 )
+from tools.gate_evaluator import evaluate_gates
 
 data_dir   = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
 report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
@@ -46,27 +47,30 @@ with open(pairs_path, "r") as f:
 pairs = composition["pairs"]
 
 
-def extract_report_text(raw: str) -> str:
+def extract_report_text(raw: str) -> tuple[str, str]:
     """
     Recover the actual === CORRELATION DECAY REPORT === text from the Scout's
     output regardless of whether llama3.1 returned it as plain text or wrapped
     it in a JSON blob. Strips trailing JSON closing characters ("}} etc).
-    """
-    # Already plain text
-    if raw.strip().startswith("=== CORRELATION DECAY REPORT ==="):
-        return raw.strip()
 
-    # Find the report header anywhere in the string
+    Returns
+    -------
+    (extracted_text, recovery_type)
+    recovery_type: "success" | "fallback_regex" | "fallback_json_extraction" | "failure"
+    """
+    # Already plain text — no fallback needed
+    if raw.strip().startswith("=== CORRELATION DECAY REPORT ==="):
+        return raw.strip(), "success"
+
+    # Fallback 1: Regex search for report header anywhere in string
     match = re.search(r"(=== CORRELATION DECAY REPORT ===.*)", raw, re.DOTALL)
     if match:
         text = match.group(1).strip()
-        # Decode escaped newlines (JSON text values use \n literals)
         text = text.replace('\\n', '\n')
-        # Strip trailing JSON artefacts: closing quotes, braces, brackets
         text = re.sub(r'[\"\'\}\]]+\s*$', '', text).strip()
-        return text
+        return text, "fallback_regex"
 
-    # Try JSON parsing — walk all string values for the report header
+    # Fallback 2: JSON parsing — walk all string values
     try:
         blob = json.loads(raw)
 
@@ -88,11 +92,12 @@ def extract_report_text(raw: str) -> str:
 
         found = find_report(blob)
         if found:
-            return found
+            return found, "fallback_json_extraction"
     except Exception:
         pass
 
-    return raw.strip()
+    # Total failure — return raw so downstream still has something
+    return raw.strip(), "failure"
 
 
 def extract_search_findings(raw: str) -> str:
@@ -175,10 +180,47 @@ def _setup_log():
     logger.addHandler(fh)
     return logger, log_path
 
+
+def _setup_llm_logger() -> logging.Logger:
+    """Configure the LLM-call outcome logger (separate file for measurement)."""
+    os.makedirs(data_dir, exist_ok=True)
+    llm_logger = logging.getLogger("shiftinnerv.llm_calls")
+    llm_logger.setLevel(logging.INFO)
+    if not llm_logger.handlers:  # avoid duplicate handlers on re-import
+        handler = logging.FileHandler(os.path.join(data_dir, "llm_calls.log"))
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+        ))
+        llm_logger.addHandler(handler)
+    return llm_logger
+
+
+def log_llm_outcome(
+    llm_logger: logging.Logger,
+    agent_name: str,
+    pair: str,
+    raw_output: str,
+    recovery_type: str,
+    success: bool,
+) -> None:
+    """
+    Log a single LLM call outcome to llm_calls.log.
+
+    recovery_type: "success" | "fallback_regex" | "fallback_json_extraction" | "failure"
+    success:       True if usable output was recovered
+    """
+    status = "OK" if success else "FAIL"
+    truncated = raw_output[:200].replace("\n", " ")
+    llm_logger.info(
+        f"[{status}] {agent_name} {pair} | recovery={recovery_type} | "
+        f"output={truncated}"
+    )
+
 # ── Run the crew for each pair ────────────────────────────────────────────────
 if __name__ == "__main__":
     from datetime import datetime
     log, log_path = _setup_log()
+    llm_log = _setup_llm_logger()
 
     n      = len(pairs)
     source = os.path.basename(pairs_path)
@@ -241,31 +283,138 @@ if __name__ == "__main__":
         )
 
         crew_error = None
+        result = None
         try:
             result = crew.kickoff()
         except Exception as e:
             crew_error = str(e)
             log.error(f"Crew failed for {label}: {e}")
 
-        # ── Extract verdict for console line ──────────────────────────────────
-        verdict_text  = str(result.raw) if not crew_error else ""
-        verdict_upper = verdict_text.upper()
-        if crew_error:
+        # ── Extract Scout report text (Part 1: instrumentation) ───────────────
+        scout_raw = ""
+        scout_report_text = ""
+        for task in [correlation_audit, quant_assessment]:
+            if (hasattr(task, "output") and task.output
+                    and hasattr(task, "agent")
+                    and task.agent.role == "Lead Quantitative Scout"):
+                scout_raw = task.output.raw or ""
+                break
+
+        if scout_raw:
+            scout_report_text, scout_recovery = extract_report_text(scout_raw)
+            scout_success = scout_recovery != "failure"
+            log_llm_outcome(
+                llm_logger=llm_log,
+                agent_name="Lead Quantitative Scout",
+                pair=f"{ticker1}/{ticker2}",
+                raw_output=scout_raw,
+                recovery_type=scout_recovery,
+                success=scout_success,
+            )
+            if not scout_success:
+                print(f"\r  ⚠️  Scout output recovery FAILED for {ticker1}/{ticker2}")
+                log.warning(f"Scout recovery FAILED for {ticker1}/{ticker2}")
+            elif scout_recovery != "success":
+                log.warning(
+                    f"Scout output required fallback ({scout_recovery}) "
+                    f"for {ticker1}/{ticker2}"
+                )
+
+        # ── STEP 2: Deterministic gate evaluation (PRIMARY trading decision) ──
+        verdict_tag = "REJECT "
+        trading_rationale = "No Scout report available."
+        det_verdict = None
+        gate_results = {}
+
+        if not crew_error and scout_report_text:
+            snapshot = parse_statistical_snapshot(scout_report_text)
+            det_verdict = evaluate_gates(
+                trace_stat=snapshot.get("trace_stat"),
+                crit_val_95=snapshot.get("crit_95"),
+                crit_val_90=snapshot.get("crit_90"),
+                half_life=snapshot.get("half_life"),
+                snr=snapshot.get("snr"),
+                episodes=snapshot.get("episodes"),
+                factor_loading=snapshot.get("factor_loading"),
+                net_pnl_bps=snapshot.get("net_pnl_bps"),
+            )
+            trading_rationale = det_verdict.rationale
+
+            gate_results = {
+                gk: det_verdict.gates[gk].status
+                for gk in ["gate_1", "gate_2", "gate_3", "gate_4", "gate_6", "gate_7"]
+                if gk in det_verdict.gates
+            }
+
+            v = det_verdict.verdict
+            if v == "ACTIVE":
+                verdict_tag = "ACTIVE ✅"
+            elif v == "MONITOR-NEAR":
+                verdict_tag = "MONITOR-NEAR 👀"
+            elif v == "MONITOR":
+                verdict_tag = "MONITOR 👀"
+            else:
+                verdict_tag = "REJECT "
+        elif crew_error:
             verdict_tag = "ERROR  "
-        elif "ACTIVE" in verdict_upper and "MONITOR" not in verdict_upper:
-            verdict_tag = "ACTIVE ✅"
-        elif "MONITOR-NEAR" in verdict_upper:
-            verdict_tag = "MONITOR-NEAR 👀"
-        elif "MONITOR" in verdict_upper:
-            verdict_tag = "MONITOR 👀"
-        else:
-            verdict_tag = "REJECT "
 
         print(f"\r  [{i:>3}/{n}]  {verdict_tag:<16}  {ticker1}/{ticker2}  {label}")
-        log.info(f"VERDICT {ticker1}/{ticker2}: {verdict_tag.strip()}")
-        if verdict_text:
-            log.debug(f"FULL VERDICT:\n{verdict_text}")
+        log.info(f"VERDICT (deterministic) {ticker1}/{ticker2}: {verdict_tag.strip()}")
+        log.info(f"RATIONALE: {trading_rationale}")
+
+        # Log individual gate statuses for audit trail
+        for gk, gs in gate_results.items():
+            log.debug(f"  {gk}: {gs}")
+
         verdicts.append((ticker1, ticker2, verdict_tag))
+
+        # ── STEP 3: Log Signal Mathematician LLM output (narrative only) ──────
+        verdict_text = str(result.raw) if result and not crew_error else ""
+        if verdict_text:
+            sm_recovered, sm_recovery = verdict_text, "success"
+            # Signal Math output doesn't use the REPORT header — just measure it
+            sm_success = bool(verdict_text.strip())
+            log_llm_outcome(
+                llm_logger=llm_log,
+                agent_name="Signal Mathematician",
+                pair=f"{ticker1}/{ticker2}",
+                raw_output=verdict_text,
+                recovery_type=sm_recovery,
+                success=sm_success,
+            )
+            log.debug(f"FULL SIGNAL MATH OUTPUT:\n{verdict_text}")
+
+        # ── STEP 4: Record ACTIVE verdicts to trial ledger ────────────────────
+        is_active = (det_verdict is not None and det_verdict.verdict == "ACTIVE")
+        is_monitor_near = (det_verdict is not None and det_verdict.verdict == "MONITOR-NEAR")
+
+        if is_active:
+            snapshot = parse_statistical_snapshot(scout_report_text)
+            try:
+                verdict_id = record_active_verdict(
+                    db_path=ledger_db_path,
+                    ticker1=ticker1,
+                    ticker2=ticker2,
+                    label=label,
+                    gate_results=gate_results,
+                    entry_z=snapshot.get("entry_z_verdict"),
+                    half_life=snapshot.get("half_life"),
+                    snr=snapshot.get("snr"),
+                    episodes=snapshot.get("episodes"),
+                    trace_stat=snapshot.get("trace_stat"),
+                    crit_95=snapshot.get("crit_95"),
+                    hedge_ratio=snapshot.get("hedge_ratio"),
+                    spread_mean=snapshot.get("spread_mean"),
+                    spread_std=snapshot.get("spread_std"),
+                    notes=f"Deterministic verdict: {trading_rationale}",
+                )
+                if verdict_id:
+                    print(f"         ↳ ledger  → trial {verdict_id}")
+                    log.info(f"LEDGER  → trial {verdict_id}  ({ticker1}/{ticker2})")
+                else:
+                    log.warning(f"LEDGER insert failed for {ticker1}/{ticker2}")
+            except Exception as e:
+                log.warning(f"LEDGER insert error for {label}: {e}")
 
         # ── Build appendix ────────────────────────────────────────────────────
         appendix_lines = []
@@ -273,7 +422,10 @@ if __name__ == "__main__":
             if hasattr(task, "output") and task.output:
                 raw  = task.output.raw or ""
                 role = task.agent.role
-                cleaned = extract_report_text(raw) if role == "Lead Quantitative Scout" else raw
+                if role == "Lead Quantitative Scout":
+                    cleaned = scout_report_text if scout_report_text else raw
+                else:
+                    cleaned = raw
                 appendix_lines.append(f"### {role}\n")
                 appendix_lines.append(f"```\n{cleaned}\n```\n")
                 log.debug(f"TASK OUTPUT [{role}]:\n{cleaned}")
@@ -296,7 +448,15 @@ if __name__ == "__main__":
                 f.write(f"**ERROR:** Crew failed to complete — {crew_error}\n\n")
                 f.write("Partial tool outputs may be available in the appendix below.\n")
             else:
-                f.write(str(result.raw))
+                f.write(f"**Deterministic Verdict:** {verdict_tag.strip()}\n\n")
+                f.write(f"**Rationale:** {trading_rationale}\n\n")
+                if gate_results:
+                    f.write("**Gate Summary:**\n")
+                    for gk, gs in sorted(gate_results.items()):
+                        f.write(f"- {gk}: {gs}\n")
+                f.write("\n### Signal Mathematician Narrative\n\n")
+                if verdict_text:
+                    f.write(verdict_text)
             f.write("\n\n---\n\n")
             f.write("## Appendix: Tool Execution Log\n\n")
             f.write("\n".join(appendix_lines))
@@ -304,39 +464,8 @@ if __name__ == "__main__":
         log.info(f"REPORT  → {report_path}")
 
         # ── Dossier on actionable verdicts ────────────────────────────────────
-        is_actionable = not crew_error and (
-            "ACTIVE" in verdict_upper or "MONITOR-NEAR" in verdict_upper
-        )
+        is_actionable = not crew_error and (is_active or is_monitor_near)
 
-        # ── Record ACTIVE verdicts to trial ledger ────────────────────────────
-        if not crew_error and "ACTIVE" in verdict_upper and "MONITOR" not in verdict_upper:
-            try:
-                gate_results = parse_gate_results(verdict_text)
-                snapshot     = parse_statistical_snapshot(verdict_text)
-                verdict_id   = record_active_verdict(
-                    db_path=ledger_db_path,
-                    ticker1=ticker1,
-                    ticker2=ticker2,
-                    label=label,
-                    gate_results=gate_results,
-                    entry_z=snapshot.get("entry_z_verdict"),
-                    half_life=snapshot.get("half_life"),
-                    snr=snapshot.get("snr"),
-                    episodes=snapshot.get("episodes"),
-                    trace_stat=snapshot.get("trace_stat"),
-                    crit_95=snapshot.get("crit_95"),
-                    hedge_ratio=snapshot.get("hedge_ratio"),
-                    spread_mean=snapshot.get("spread_mean"),
-                    spread_std=snapshot.get("spread_std"),
-                    notes=f"report={os.path.basename(report_path)}",
-                )
-                if verdict_id:
-                    print(f"         ↳ ledger  → trial {verdict_id}")
-                    log.info(f"LEDGER  → trial {verdict_id}  ({ticker1}/{ticker2})")
-                else:
-                    log.warning(f"LEDGER insert failed for {ticker1}/{ticker2}")
-            except Exception as e:
-                log.warning(f"LEDGER insert error for {label}: {e}")
         if is_actionable:
             try:
                 lookback_days = pair.get("lookback_years", 5) * 252 // 12
