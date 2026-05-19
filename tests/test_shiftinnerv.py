@@ -72,7 +72,9 @@ def make_cointegrated_prices(
     # Convert to price levels (exponentiate to make them look like prices)
     p1 = np.exp(s1 / s1.std() * 0.5 + 5)
     p2 = np.exp(s2 / s2.std() * 0.5 + 5)
-    idx = pd.date_range("2019-01-01", periods=n, freq="B")
+    # Anchor to today so the lookback filter (datetime.today() - N years) never cuts synthetic rows
+    end = pd.Timestamp.today().normalize()
+    idx = pd.bdate_range(end=end, periods=n)
     df1 = pd.DataFrame({"Close": p1}, index=idx)
     df2 = pd.DataFrame({"Close": p2}, index=idx)
     return df1, df2
@@ -83,7 +85,8 @@ def make_random_walk_prices(n: int = 500, seed: int = 99) -> tuple:
     rng = np.random.default_rng(seed)
     p1 = np.exp(np.cumsum(rng.standard_normal(n) * 0.01) + 5)
     p2 = np.exp(np.cumsum(rng.standard_normal(n) * 0.01) + 5)
-    idx = pd.date_range("2019-01-01", periods=n, freq="B")
+    end = pd.Timestamp.today().normalize()
+    idx = pd.bdate_range(end=end, periods=n)
     df1 = pd.DataFrame({"Close": p1}, index=idx)
     df2 = pd.DataFrame({"Close": p2}, index=idx)
     return df1, df2
@@ -941,7 +944,7 @@ class TestSentinelLockFile:
             'LOCK_PATH        = os.path.join(DATA_DIR, "sentinel.lock")',
             f'LOCK_PATH        = "{lock_path}"'
         )
-        ns = {"__name__": "sentinel_test"}
+        ns = {"__name__": "sentinel_test", "__file__": str(PROJECT_ROOT / "sentinel.py")}
         exec(compile(src_patched, "sentinel.py", "exec"), ns)
 
         import logging
