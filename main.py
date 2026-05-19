@@ -21,10 +21,27 @@ from trial_ledger import (
     init_trial_ledger,
 )
 from tools.gate_evaluator import evaluate_gates
+from tools.composition_monitor import (
+    load_compositions,
+    get_pair_composition,
+    check_composition_concentration,
+)
 
 data_dir   = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
 report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
 os.makedirs(report_dir, exist_ok=True)
+
+# ── Item 15: Composition concentration limits (gate override) ─────────────────
+# Default: 2 simultaneous open positions per composition.
+# Override per-composition below for finer control.
+COMPOSITION_CONCENTRATION_LIMIT = 2
+
+COMPOSITION_LIMITS: dict = {
+    # More conservative for commodity pairs — higher cross-asset correlation
+    "commodity_equity_proxy": 1,
+    # Standard limit for all others (overrides default when key present)
+}
+
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="ShiftInnerV Shadow Audit")
@@ -234,6 +251,12 @@ if __name__ == "__main__":
     init_trial_ledger(ledger_db_path)
     log.info(f"Trial ledger: {ledger_db_path}")
 
+    # ── Item 15: Load compositions once (used for concentration checks) ───────
+    _compositions_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "compositions")
+    compositions = load_compositions(_compositions_dir)
+    log.info(f"Loaded {len(compositions)} composition(s) for concentration tracking: "
+             f"{', '.join(sorted(compositions.keys())) or '(none)'}")
+
     # ── Ensure data ───────────────────────────────────────────────────────────
     tickers     = tickers_from_pairs(pairs)
     data_status = ensure_data(tickers, data_dir)
@@ -325,6 +348,7 @@ if __name__ == "__main__":
         trading_rationale = "No Scout report available."
         det_verdict = None
         gate_results = {}
+        composition_label = None   # Item 15: set during gate block if applicable
 
         if not crew_error and scout_report_text:
             snapshot = parse_statistical_snapshot(scout_report_text)
@@ -355,10 +379,47 @@ if __name__ == "__main__":
                 verdict_tag = "MONITOR 👀"
             else:
                 verdict_tag = "REJECT "
+
+            # ── Item 15: Composition concentration gate override ──────────────
+            # Identify which composition this pair belongs to.
+            composition_label = get_pair_composition(ticker1, ticker2, compositions)
+
+            # Only ACTIVE verdicts can be downgraded; MONITOR/REJECT are unaffected.
+            if composition_label and det_verdict.verdict == "ACTIVE":
+                conc_limit = COMPOSITION_LIMITS.get(
+                    composition_label, COMPOSITION_CONCENTRATION_LIMIT
+                )
+                conc_check = check_composition_concentration(
+                    db_path=ledger_db_path,
+                    composition_label=composition_label,
+                    limit=conc_limit,
+                    logger=log,
+                )
+                if conc_check.decision == "DOWNGRADE_TO_MONITOR":
+                    log.warning(
+                        f"CONCENTRATION OVERRIDE: {ticker1}/{ticker2} "
+                        f"({composition_label}) downgraded from ACTIVE to MONITOR. "
+                        f"{conc_check.rationale}"
+                    )
+                    det_verdict.verdict  = "MONITOR"
+                    det_verdict.rationale = (
+                        f"[CONCENTRATION OVERRIDE] {conc_check.rationale} "
+                        f"Original gates passed. Downgraded to MONITOR until an "
+                        f"existing {composition_label} position closes."
+                    )
+                    trading_rationale = det_verdict.rationale
+                    verdict_tag = "MONITOR 👀"
         elif crew_error:
             verdict_tag = "ERROR  "
 
         print(f"\r  [{i:>3}/{n}]  {verdict_tag:<16}  {ticker1}/{ticker2}  {label}")
+        # Item 15: surface concentration override in console
+        if (det_verdict is not None
+                and "[CONCENTRATION OVERRIDE]" in (det_verdict.rationale or "")):
+            print(
+                f"         ↳ CONCENTRATION OVERRIDE: {composition_label} "
+                f"at limit — downgraded from ACTIVE to MONITOR"
+            )
         log.info(f"VERDICT (deterministic) {ticker1}/{ticker2}: {verdict_tag.strip()}")
         log.info(f"RATIONALE: {trading_rationale}")
 
@@ -397,6 +458,7 @@ if __name__ == "__main__":
                     ticker2=ticker2,
                     label=label,
                     gate_results=gate_results,
+                    composition_label=composition_label,   # Item 15
                     entry_z=snapshot.get("entry_z_verdict"),
                     half_life=snapshot.get("half_life"),
                     snr=snapshot.get("snr"),

@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS trial_ledger (
 CREATE INDEX IF NOT EXISTS idx_verdict_timestamp ON trial_ledger(verdict_timestamp);
 CREATE INDEX IF NOT EXISTS idx_is_closed         ON trial_ledger(is_closed);
 CREATE INDEX IF NOT EXISTS idx_ticker_pair        ON trial_ledger(ticker1, ticker2);
+CREATE INDEX IF NOT EXISTS idx_composition_label  ON trial_ledger(composition_label);
 """
 
 
@@ -244,6 +245,7 @@ def record_active_verdict(
     label: str,
     gate_results: dict,
     *,
+    composition_label: str | None = None,
     entry_z: float | None = None,
     half_life: float | None = None,
     snr: float | None = None,
@@ -257,6 +259,15 @@ def record_active_verdict(
 ) -> str | None:
     """
     Insert a new trial record when an ACTIVE verdict is issued.
+
+    Parameters
+    ----------
+    label : str
+        Human-readable pair label (e.g. "Defense: LMT vs NOC").
+    composition_label : str | None
+        Composition category the pair belongs to (e.g. "defense",
+        "china_em"). Used for concentration-limit enforcement (Item 15).
+        Pass ``None`` for standalone pairs.
 
     Returns the 8-char verdict_id for later reference (or None on failure).
     """
@@ -288,7 +299,7 @@ def record_active_verdict(
             (
                 verdict_id,
                 datetime.now().isoformat(),
-                label,
+                composition_label,   # ← Item 15: real composition label, not pair label
                 ticker1,
                 ticker2,
                 entry_z,
