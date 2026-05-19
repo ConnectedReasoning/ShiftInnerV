@@ -41,7 +41,7 @@ from dotenv import load_dotenv
 
 # Item 8 imports (lazy-imported inside main() to avoid startup cost when --dry-run)
 # from tools.regime_monitor import RegimeDetector, RegimeState
-# from init_trial_ledger import load_open_trials
+# from trial_ledger import load_open_trials
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
@@ -198,7 +198,7 @@ def run_position_revalidation(log: logging.Logger) -> None:
     Records all results to position_revalidations table.
     """
     from tools.position_monitor import revalidate_open_positions
-    from init_trial_ledger import record_position_revalidation
+    from trial_ledger import record_position_revalidation
 
     print("\n── Position Revalidation ────────────────────────────────────────")
 
@@ -270,7 +270,7 @@ def run_regime_detection(log: logging.Logger):
     RegimeSnapshot — always returned (even CRISIS, before the exit)
     """
     from tools.regime_monitor import RegimeDetector, RegimeState
-    from init_trial_ledger import load_open_trials
+    from trial_ledger import load_open_trials
 
     print("\n── Market Regime Detection ─────────────────────────────────────")
 

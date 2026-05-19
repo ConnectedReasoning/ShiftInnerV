@@ -74,7 +74,7 @@ def compositions_dir(tmp_path):
 @pytest.fixture
 def empty_ledger(tmp_path):
     """An initialised trial_ledger.db with no records."""
-    from init_trial_ledger import init_trial_ledger
+    from trial_ledger import init_trial_ledger
     db_path = str(tmp_path / "trial_ledger.db")
     init_trial_ledger(db_path)
     return db_path
@@ -335,7 +335,7 @@ class TestRecordAndCheck:
         A third defense pair must be blocked (DOWNGRADE_TO_MONITOR).
         Verifies the fix to record_active_verdict passing composition_label.
         """
-        from init_trial_ledger import record_active_verdict
+        from trial_ledger import record_active_verdict
 
         record_active_verdict(
             db_path=empty_ledger,
@@ -362,7 +362,7 @@ class TestRecordAndCheck:
         """
         Two open defense positions must not block an unrelated china_em verdict.
         """
-        from init_trial_ledger import record_active_verdict
+        from trial_ledger import record_active_verdict
 
         record_active_verdict(
             db_path=empty_ledger,
@@ -387,7 +387,7 @@ class TestRecordAndCheck:
         A pair with composition_label=None (standalone) should never be
         concentration-blocked by other standalone positions.
         """
-        from init_trial_ledger import record_active_verdict
+        from trial_ledger import record_active_verdict
 
         for i in range(5):
             record_active_verdict(
