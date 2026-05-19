@@ -286,11 +286,17 @@ class CorrelationDecayTool(BaseTool):
                     "The spread's mean-reverting signal dominates its trend drift. "
                     "High confidence in pair tradability."
                 )
-            elif snr >= 1.0:
+            elif snr >= 1.5:
                 snr_tier           = "MODERATE"
                 snr_interpretation = (
                     "Meaningful mean reversion present but non-trivial trend risk remains. "
                     "Trade with position discipline."
+                )
+            elif snr >= 1.0:
+                snr_tier           = "LOW"
+                snr_interpretation = (
+                    "SNR above bare minimum (1.0) but below evidence-based floor (1.5). "
+                    "Signal and noise are near-equal. Gate 3 will assign MONITOR-LOW-SNR."
                 )
             else:
                 snr_tier           = "WEAK"

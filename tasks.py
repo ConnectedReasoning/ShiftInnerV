@@ -92,10 +92,17 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
       CRITICAL: Never write PASS if half-life exceeds 120 days or lambda >= 0.
 
     Gate 3 — SNR
-      PASS: SNR >= 1.0 (MODERATE, STRONG tier, or a max value of 99.9999 indicating a near-flat trend)
-        Write: "PASS — SNR [value] >= 1.0 ([tier] tier)."
+      PASS: SNR >= 1.5 (STRONG tier, or a max value of 99.9999 indicating a near-flat trend)
+        Write: "PASS — SNR [value] >= 1.5 ([tier] tier)."
+      MONITOR-LOW-SNR: SNR >= 1.0 and SNR < 1.5
+        Write: "MONITOR-LOW-SNR — SNR [value] is above the bare-minimum threshold (1.0)
+                but below the evidence-based floor (1.5). Signal and noise are near-equal.
+                Re-evaluate after 30 days or when more data is available."
       FAIL: SNR < 1.0
         Write: "FAIL — SNR [value] < 1.0. Nonstationary drift dominates mean-reverting signal."
+      NOTE: The floor of 1.5 is evidence-based (threshold_sensitivity_report.md, May 2026).
+            SNR=1.0 (Vidyamurthy literature default) means signal and noise are equal —
+            barely tradeable. Council recommended 1.5–2.0; 1.5 adopted as initial floor.
 
     Gate 4 — Episode persistence
       IMPORTANT: Only evaluate Gate 4 if Gates 1, 2, and 3 all passed.
@@ -123,7 +130,10 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
 
     STEP 3 — For ACTIVE verdicts only, compute and report:
     - Entry threshold: spread z-score >= 2.0 standard deviations from mean
-    - Exit threshold: spread z-score <= 0.5 standard deviations from mean
+    - Exit threshold: spread z-score <= 0.25 standard deviations from mean
+      (raised from 0.5 per threshold_sensitivity_report.md May 2026;
+       OU simulation shows exit=0.25 delivers +0.15–0.17 Sharpe improvement
+       across all tested half-lives vs. the prior 0.5 exit)
     - Stop-loss threshold: spread z-score >= 3.0 standard deviations
     - Expected holding period: [half-life] trading days
     - Position sizing note: weight inversely proportional to half-life;

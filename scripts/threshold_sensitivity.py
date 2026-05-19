@@ -46,11 +46,11 @@ DEFAULT_OUT = str(PROJECT_ROOT / "threshold_sensitivity_report.md")
 
 # ── Current threshold values (single source of truth) ─────────────────────────
 THRESHOLDS = {
-    "snr_floor":    1.0,
+    "snr_floor":    1.5,   # raised from 1.0 per May 2026 sensitivity analysis
     "hl_ceiling":   120.0,
     "episode_min":  2,
     "entry_z":      2.0,
-    "exit_z":       0.5,
+    "exit_z":       0.25,  # lowered from 0.5 per May 2026 sensitivity analysis
     "stop_z":       3.0,
 }
 
@@ -146,7 +146,7 @@ def gate_sensitivity_analysis(df: pd.DataFrame) -> dict:
 
     # ── Gate 3: SNR floor ──────────────────────────────────────────────────────
     snr_data  = df["snr"].dropna()
-    snr_clean = snr_data[snr_data <= 1000]  # exclude suspicious SNR > 100
+    snr_clean = snr_data[snr_data <= 100]  # exclude suspicious SNR > 100
     snr_results = {}
     for floor in [0.5, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5]:
         passes = (snr_clean >= floor).sum()
