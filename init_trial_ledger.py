@@ -19,6 +19,7 @@ import re
 import sqlite3
 import uuid
 from datetime import datetime
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -496,6 +497,138 @@ def load_open_trials(db_path: str) -> pd.DataFrame | None:
         return df
     except Exception as exc:
         print(f"ERROR [trial_ledger]: could not read open trials — {exc}")
+        return None
+
+
+# ── Item 13: Position Revalidation History ───────────────────────────────────
+
+REVALIDATION_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS position_revalidations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    verdict_id          TEXT NOT NULL,
+    check_timestamp     TEXT NOT NULL,
+    snr_entry           REAL,
+    snr_current         REAL,
+    snr_change_bps      REAL,
+    mean_drift_sigma    REAL,
+    drift_detected      INTEGER,
+    decision            TEXT,   -- HOLD | MONITOR | AUTO_CLOSE
+    rationale           TEXT,
+    days_held           INTEGER,
+    FOREIGN KEY(verdict_id) REFERENCES trial_ledger(verdict_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reval_verdict_id ON position_revalidations(verdict_id);
+CREATE INDEX IF NOT EXISTS idx_reval_timestamp  ON position_revalidations(check_timestamp);
+CREATE INDEX IF NOT EXISTS idx_reval_decision   ON position_revalidations(decision);
+"""
+
+
+def init_position_revalidations_table(db_path: str) -> bool:
+    """Create position_revalidations table and indexes if not already present."""
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.executescript(REVALIDATION_SCHEMA_SQL)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as exc:
+        print(f"ERROR [trial_ledger]: could not create position_revalidations table — {exc}")
+        return False
+
+
+def record_position_revalidation(
+    db_path: str,
+    verdict_id: str,
+    snr_entry: Optional[float],
+    snr_current: Optional[float],
+    snr_change_bps: Optional[float],
+    mean_drift_sigma: Optional[float],
+    drift_detected: bool,
+    decision: str,
+    rationale: str,
+    days_held: Optional[int],
+) -> bool:
+    """
+    Record a single position revalidation result to position_revalidations table.
+
+    Called by sentinel.py after each revalidation run.
+    Returns True on success.
+    """
+    try:
+        init_position_revalidations_table(db_path)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            """
+            INSERT INTO position_revalidations (
+                verdict_id, check_timestamp,
+                snr_entry, snr_current, snr_change_bps,
+                mean_drift_sigma, drift_detected,
+                decision, rationale, days_held
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                verdict_id,
+                datetime.now().isoformat(),
+                snr_entry,
+                snr_current,
+                snr_change_bps,
+                mean_drift_sigma,
+                1 if drift_detected else 0,
+                decision,
+                rationale,
+                days_held,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as exc:
+        print(f"ERROR [trial_ledger]: could not record revalidation — {exc}")
+        return False
+
+
+def load_revalidation_history(
+    db_path: str,
+    verdict_id: Optional[str] = None,
+    decision_filter: Optional[str] = None,
+) -> "pd.DataFrame | None":
+    """
+    Return revalidation history as a DataFrame.
+
+    Parameters
+    ----------
+    verdict_id : str, optional
+        Filter to a single position
+    decision_filter : str, optional
+        Filter by decision (e.g. 'AUTO_CLOSE')
+    """
+    if not os.path.exists(db_path):
+        return None
+    try:
+        conn = sqlite3.connect(db_path)
+        clauses = []
+        params = []
+        if verdict_id:
+            clauses.append("verdict_id = ?")
+            params.append(verdict_id)
+        if decision_filter:
+            clauses.append("decision = ?")
+            params.append(decision_filter)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        df = pd.read_sql_query(
+            f"""
+            SELECT * FROM position_revalidations
+            {where}
+            ORDER BY check_timestamp DESC
+            """,
+            conn,
+            params=params,
+        )
+        conn.close()
+        return df
+    except Exception as exc:
+        print(f"ERROR [trial_ledger]: could not read revalidation history — {exc}")
         return None
 
 

@@ -55,7 +55,8 @@ MONITOR_PY = os.path.join(PROJECT_DIR, "monitor.py")
 MAIN_PY    = os.path.join(PROJECT_DIR, "main.py")
 PROMOTE_PY = os.path.join(PROJECT_DIR, "promote.py")
 
-SEEN_PATH  = os.path.join(DATA_DIR, "sentinel_seen.txt")
+SEEN_PATH       = os.path.join(DATA_DIR, "sentinel_seen.txt")
+LEDGER_DB_PATH  = os.path.join(DATA_DIR, "trial_ledger.db")
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -184,6 +185,69 @@ def latest_promoted() -> str | None:
     return str(files[0]) if files else None
 
 
+# ── Position revalidation (Item 13) ──────────────────────────────────────────
+
+def run_position_revalidation(log: logging.Logger) -> None:
+    """
+    Revalidate all open positions for SNR deterioration and mean drift.
+    Auto-closes positions that fail both the SNR and drift criteria.
+    Records all results to position_revalidations table.
+    """
+    from tools.position_monitor import revalidate_open_positions
+    from init_trial_ledger import record_position_revalidation
+
+    print("\n── Position Revalidation ────────────────────────────────────────")
+
+    if not os.path.exists(LEDGER_DB_PATH):
+        log.warning(f"[position_revalidation] Trial ledger not found: {LEDGER_DB_PATH}")
+        print("  Trial ledger not found — skipping revalidation.")
+        return
+
+    results = revalidate_open_positions(
+        db_path=LEDGER_DB_PATH,
+        data_dir=DATA_DIR,
+        logger=log,
+    )
+
+    if not results:
+        print("  No open positions to revalidate.")
+        return
+
+    auto_close_count = sum(1 for r in results if r.decision == "AUTO_CLOSE")
+    monitor_count    = sum(1 for r in results if r.decision == "MONITOR")
+    hold_count       = sum(1 for r in results if r.decision == "HOLD")
+    error_count      = sum(1 for r in results if r.error is not None)
+
+    print(f"  Revalidated {len(results)} open position(s)")
+    if hold_count       > 0: print(f"  ✓  {hold_count} position(s) to HOLD")
+    if monitor_count    > 0: print(f"  👀 {monitor_count} position(s) flagged for MONITOR")
+    if auto_close_count > 0: print(f"  ⚠️  {auto_close_count} position(s) triggered AUTO_CLOSE")
+    if error_count      > 0: print(f"  ✗  {error_count} position(s) skipped (data/error)")
+
+    log.info(
+        f"[position_revalidation] {len(results)} checked — "
+        f"{hold_count} HOLD | {monitor_count} MONITOR | "
+        f"{auto_close_count} AUTO_CLOSE | {error_count} errors"
+    )
+
+    # Persist results to revalidation history table
+    for result in results:
+        if result.error is not None:
+            continue
+        record_position_revalidation(
+            db_path=LEDGER_DB_PATH,
+            verdict_id=result.verdict_id,
+            snr_entry=result.entry_snr,
+            snr_current=result.current_snr,
+            snr_change_bps=result.snr_change_bps,
+            mean_drift_sigma=result.mean_drift_sigma,
+            drift_detected=result.drift_detected,
+            decision=result.decision,
+            rationale=result.rationale,
+            days_held=result.days_held,
+        )
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -211,6 +275,9 @@ def main():
         print(f"  monitor.py   : {'✅' if os.path.exists(MONITOR_PY) else '❌ NOT FOUND'}")
         print(f"  main.py      : {'✅' if os.path.exists(MAIN_PY) else '❌ NOT FOUND'}")
         print(f"  promote.py   : {'✅' if os.path.exists(PROMOTE_PY) else '❌ NOT FOUND'}")
+        pos_monitor_path = os.path.join(PROJECT_DIR, "tools", "position_monitor.py")
+        print(f"  position_monitor.py : {'✅' if os.path.exists(pos_monitor_path) else '❌ NOT FOUND'}")
+        print(f"  trial_ledger : {'✅' if os.path.exists(LEDGER_DB_PATH) else '⚠️  not created yet'}")
         print(f"  --promoted   : {args.promoted}")
         return
 
@@ -228,6 +295,9 @@ def main():
 
         # ── Step 1: Monitor pass ──────────────────────────────────────────────
         run_subprocess([sys.executable, MONITOR_PY], "monitor.py", log)
+
+        # ── Step 1b: Position Revalidation (Item 13) ──────────────────────────
+        run_position_revalidation(log)
 
         # ── Step 2: Process new anomaly yamls ─────────────────────────────────
         seen     = load_seen()
