@@ -87,6 +87,10 @@ CREATE TABLE IF NOT EXISTS trial_ledger (
     gate_6_result       TEXT,
     gate_7_result       TEXT,
 
+    -- Item 8: Regime state at verdict time
+    regime_state            TEXT DEFAULT 'NORMAL',   -- NORMAL | ELEVATED | HIGH_STRESS | CRISIS
+    position_size_multiplier REAL DEFAULT 1.0,        -- e.g. 0.5, 0.25 in stressed regimes
+
     notes               TEXT,
     created_at          TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -103,6 +107,15 @@ def init_trial_ledger(db_path: str) -> None:
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA_SQL)
+    # ── Item 8: migrate existing databases (ADD COLUMN is idempotent via try/except)
+    for stmt in (
+        "ALTER TABLE trial_ledger ADD COLUMN regime_state TEXT DEFAULT 'NORMAL'",
+        "ALTER TABLE trial_ledger ADD COLUMN position_size_multiplier REAL DEFAULT 1.0",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.commit()
     conn.close()
 
@@ -256,6 +269,9 @@ def record_active_verdict(
     spread_mean: float | None = None,
     spread_std: float | None = None,
     notes: str | None = None,
+    # Item 8: Regime context
+    regime_state: str = "NORMAL",
+    position_size_multiplier: float = 1.0,
 ) -> str | None:
     """
     Insert a new trial record when an ACTIVE verdict is issued.
@@ -268,6 +284,12 @@ def record_active_verdict(
         Composition category the pair belongs to (e.g. "defense",
         "china_em"). Used for concentration-limit enforcement (Item 15).
         Pass ``None`` for standalone pairs.
+    regime_state : str
+        Market regime at verdict time (Item 8). One of NORMAL, ELEVATED,
+        HIGH_STRESS, CRISIS.
+    position_size_multiplier : float
+        Position sizing multiplier applied due to regime (Item 8).
+        1.0 = full size, 0.5 = halved, 0.25 = quarter, 0.0 = no entry.
 
     Returns the 8-char verdict_id for later reference (or None on failure).
     """
@@ -285,6 +307,7 @@ def record_active_verdict(
                 hedge_ratio, spread_mean, spread_std,
                 gate_1_result, gate_2_result, gate_3_result, gate_4_result,
                 gate_6_result, gate_7_result,
+                regime_state, position_size_multiplier,
                 is_closed, notes
             ) VALUES (
                 ?, ?, ?,
@@ -293,6 +316,7 @@ def record_active_verdict(
                 ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?, ?, ?,
+                ?, ?,
                 0, ?
             )
             """,
@@ -317,6 +341,8 @@ def record_active_verdict(
                 gate_results.get("gate_4", ""),
                 gate_results.get("gate_6", ""),
                 gate_results.get("gate_7", ""),
+                regime_state,
+                position_size_multiplier,
                 notes,
             ),
         )

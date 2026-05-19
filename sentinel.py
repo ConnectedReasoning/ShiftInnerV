@@ -39,6 +39,10 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Item 8 imports (lazy-imported inside main() to avoid startup cost when --dry-run)
+# from tools.regime_monitor import RegimeDetector, RegimeState
+# from init_trial_ledger import load_open_trials
+
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -248,6 +252,102 @@ def run_position_revalidation(log: logging.Logger) -> None:
         )
 
 
+
+# ── Item 8: Regime Detection ──────────────────────────────────────────────────
+
+def run_regime_detection(log: logging.Logger):
+    """
+    Detect current market regime and set env vars for downstream processes.
+
+    - Fetches VIX level
+    - Checks open position correlation to SPY
+    - Determines RegimeState and position_size_multiplier
+    - Sets CURRENT_REGIME_STATE and POSITION_SIZE_MULTIPLIER env vars
+    - Halts new entries (sys.exit(0)) on CRISIS with monitoring-only run
+
+    Returns
+    -------
+    RegimeSnapshot — always returned (even CRISIS, before the exit)
+    """
+    from tools.regime_monitor import RegimeDetector, RegimeState
+    from init_trial_ledger import load_open_trials
+
+    print("\n── Market Regime Detection ─────────────────────────────────────")
+
+    detector = RegimeDetector(data_dir=DATA_DIR, logger=log)
+
+    # Load currently open positions for correlation check
+    open_positions = []
+    if os.path.exists(LEDGER_DB_PATH):
+        open_df = load_open_trials(LEDGER_DB_PATH)
+        if open_df is not None and len(open_df) > 0:
+            open_positions = [
+                (row["ticker1"], row["ticker2"])
+                for _, row in open_df.iterrows()
+                if row["ticker1"] and row["ticker2"]
+            ]
+
+    regime = detector.detect_regime(open_positions=open_positions, logger=log)
+
+    # ── Console output ────────────────────────────────────────────────────────
+    state_icons = {
+        "NORMAL":      "✓",
+        "ELEVATED":    "⚠️ ",
+        "HIGH_STRESS": "⚠️ ",
+        "CRISIS":      "❌",
+    }
+    icon = state_icons.get(regime.state.value, "")
+    print(f"  Regime:   {regime.state.value}  {icon}")
+    print(f"  VIX:      {regime.vix_level:.1f}"
+          + ("  [UNAVAILABLE — using default]" if regime.vix_unavailable else ""))
+    print(f"  Pos size: {regime.position_size_multiplier}x")
+
+    if regime.state == "NORMAL":
+        print("  ✓ Market conditions stable.")
+    elif regime.state == RegimeState.ELEVATED:
+        print("  ⚠️  ELEVATED: Reduce position sizes to 50%.")
+    elif regime.state == RegimeState.HIGH_STRESS:
+        print("  ⚠️  HIGH_STRESS: Only SNR ≥ 2.0 pairs accepted. Position size 25%.")
+
+    if regime.correlation_regime:
+        print(f"  ⚠️  CORRELATION_REGIME: {len(regime.correlated_pairs)} pair(s) "
+              f"|SPY corr| > 0.7")
+        for t1, t2, corr in regime.correlated_pairs:
+            print(f"       {t1}/{t2}: {corr:.3f}")
+        if regime.state != RegimeState.CRISIS:
+            print(f"  ⚠️  Further reduction applied → final {regime.position_size_multiplier:.4g}x "
+                  f"(VIX × 0.5 correlation)")
+
+    log.info(
+        f"[regime] State={regime.state.value} | VIX={regime.vix_level:.1f} | "
+        f"Multiplier={regime.position_size_multiplier}x | "
+        f"Open={len(open_positions)} | Correlated={len(regime.correlated_pairs)}"
+    )
+
+    # ── Propagate to downstream subprocesses via env vars ─────────────────────
+    os.environ["CURRENT_REGIME_STATE"]    = regime.state.value
+    os.environ["POSITION_SIZE_MULTIPLIER"] = str(regime.position_size_multiplier)
+
+    # ── CRISIS: hard halt on new entries ─────────────────────────────────────
+    if regime.state == RegimeState.CRISIS:
+        print(f"\n❌ HALT: CRISIS regime detected (VIX {regime.vix_level:.1f} ≥ 40)")
+        print(f"   No new verdicts will be generated.")
+        print(f"   Existing open positions continue to be monitored.")
+        print(f"   Operator must manually restart screening after regime normalises.")
+
+        log.critical(
+            f"CRISIS_REGIME: VIX {regime.vix_level:.1f} ≥ 40. "
+            f"Halting new entries. Manual restart required."
+        )
+
+        print(f"\n   Running monitoring only (no new verdicts)...")
+        run_subprocess([sys.executable, MONITOR_PY], "monitor.py (monitoring only)", log)
+        release_lock()
+        sys.exit(0)   # Clean exit — launchd will re-run on schedule
+
+    return regime
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -276,7 +376,9 @@ def main():
         print(f"  main.py      : {'✅' if os.path.exists(MAIN_PY) else '❌ NOT FOUND'}")
         print(f"  promote.py   : {'✅' if os.path.exists(PROMOTE_PY) else '❌ NOT FOUND'}")
         pos_monitor_path = os.path.join(PROJECT_DIR, "tools", "position_monitor.py")
+        regime_monitor_path = os.path.join(PROJECT_DIR, "tools", "regime_monitor.py")
         print(f"  position_monitor.py : {'✅' if os.path.exists(pos_monitor_path) else '❌ NOT FOUND'}")
+        print(f"  regime_monitor.py   : {'✅' if os.path.exists(regime_monitor_path) else '❌ NOT FOUND'}  (Item 8)")
         print(f"  trial_ledger : {'✅' if os.path.exists(LEDGER_DB_PATH) else '⚠️  not created yet'}")
         print(f"  --promoted   : {args.promoted}")
         return
@@ -292,6 +394,9 @@ def main():
         log.info(f"Sentinel run — {datetime.now().strftime('%Y-%m-%d %H:%M')}  "
                  f"promoted={args.promoted}")
         log.info("=" * 55)
+
+        # ── Step 0: Market Regime Detection (Item 8) ──────────────────────────
+        regime = run_regime_detection(log)
 
         # ── Step 1: Monitor pass ──────────────────────────────────────────────
         run_subprocess([sys.executable, MONITOR_PY], "monitor.py", log)

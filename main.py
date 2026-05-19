@@ -482,6 +482,37 @@ if __name__ == "__main__":
                     )
                     trading_rationale = det_verdict.rationale
                     verdict_tag = "MONITOR 👀"
+
+            # ── Item 8: Regime filter — applied after all other downgrades ──────
+            # Only fires on verdicts still ACTIVE at this point.
+            if det_verdict is not None and det_verdict.verdict == "ACTIVE":
+                regime_state      = os.getenv("CURRENT_REGIME_STATE", "NORMAL")
+                regime_multiplier = float(os.getenv("POSITION_SIZE_MULTIPLIER", "1.0"))
+                pair_snr          = snapshot.get("snr") if 'snapshot' in dir() else None
+
+                # HIGH_STRESS: require SNR >= 2.0 for new entries
+                if regime_state == "HIGH_STRESS":
+                    snr_threshold = 2.0
+                    if pair_snr is None or pair_snr < snr_threshold:
+                        snr_display = f"{pair_snr:.2f}" if pair_snr is not None else "N/A"
+                        log.warning(
+                            f"REGIME FILTER [HIGH_STRESS]: {ticker1}/{ticker2} downgraded "
+                            f"from ACTIVE to MONITOR. SNR {snr_display} < {snr_threshold} required."
+                        )
+                        det_verdict.verdict  = "MONITOR"
+                        det_verdict.rationale = (
+                            f"[STRESS_REGIME] Downgraded from ACTIVE. "
+                            f"HIGH_STRESS requires SNR ≥ {snr_threshold}; "
+                            f"this pair has SNR {snr_display}. "
+                            f"Original gates passed."
+                        )
+                        trading_rationale = det_verdict.rationale
+                        verdict_tag = "MONITOR 👀"
+                        print(
+                            f"         ↳ STRESS_REGIME: SNR {snr_display} < {snr_threshold} "
+                            f"(HIGH_STRESS) — downgraded to MONITOR"
+                        )
+
         elif crew_error:
             verdict_tag = "ERROR  "
 
@@ -524,6 +555,10 @@ if __name__ == "__main__":
 
         if is_active:
             snapshot = parse_statistical_snapshot(scout_report_text)
+            # Item 8: attach regime context to every ACTIVE ledger entry
+            _regime_state      = os.getenv("CURRENT_REGIME_STATE", "NORMAL")
+            _regime_multiplier = os.getenv("POSITION_SIZE_MULTIPLIER", "1.0")
+            _regime_note       = f"Regime: {_regime_state} | PosSizeMultiplier: {_regime_multiplier}x"
             try:
                 verdict_id = record_active_verdict(
                     db_path=ledger_db_path,
@@ -541,7 +576,9 @@ if __name__ == "__main__":
                     hedge_ratio=snapshot.get("hedge_ratio"),
                     spread_mean=snapshot.get("spread_mean"),
                     spread_std=snapshot.get("spread_std"),
-                    notes=f"Deterministic verdict: {trading_rationale}",
+                    regime_state=_regime_state,                     # Item 8
+                    position_size_multiplier=float(_regime_multiplier),  # Item 8
+                    notes=f"[{_regime_note}] Deterministic verdict: {trading_rationale}",
                 )
                 if verdict_id:
                     print(f"         ↳ ledger  → trial {verdict_id}")
