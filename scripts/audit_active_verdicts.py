@@ -382,6 +382,11 @@ def audit_active_verdict(verdict: dict, verbose: bool = False) -> dict:
             "profitable":     net_pnl["is_profitable"],
             "marginal":       net_pnl["marginal"],
             "cost_breakdown": costs["cost_breakdown"],
+            # Prices included for ledger integration (Item 14)
+            "entry_price_1":  round(entry_price_1, 4),
+            "entry_price_2":  round(entry_price_2, 4),
+            "exit_price_1":   round(exit_price_1, 4),
+            "exit_price_2":   round(exit_price_2, 4),
         })
 
         if verbose:
@@ -696,6 +701,63 @@ def main() -> None:
             verdict_str = "❌ NO EDGE — halt; revise methodology"
 
         print(f"\n  {verdict_str}")
+
+    # ── Close trials in ledger (Item 14) ─────────────────────────────────────
+    ledger_db = os.path.join(DATA_STORAGE, "trial_ledger.db")
+    if os.path.exists(ledger_db) and valid:
+        sys.path.insert(0, str(PROJECT_ROOT))
+        try:
+            from trial_ledger import close_trial
+            closed_ok = closed_fail = 0
+            for t in valid:
+                # Audit doesn't carry verdict_id; match by ticker pair + entry date
+                import sqlite3 as _sqlite3
+                try:
+                    conn = _sqlite3.connect(ledger_db)
+                    row = conn.execute(
+                        """
+                        SELECT verdict_id FROM trial_ledger
+                        WHERE ticker1 = ? AND ticker2 = ?
+                          AND is_closed = 0
+                        ORDER BY ABS(JULIANDAY(verdict_timestamp) -
+                                     JULIANDAY(?)) ASC
+                        LIMIT 1
+                        """,
+                        (t["ticker1"], t["ticker2"], t["entry_date"]),
+                    ).fetchone()
+                    conn.close()
+                    verdict_id = row[0] if row else None
+                except Exception:
+                    verdict_id = None
+
+                if verdict_id:
+                    ok = close_trial(
+                        db_path=ledger_db,
+                        verdict_id=verdict_id,
+                        entry_timestamp=t["entry_date"],
+                        entry_price_1=t["entry_price_1"],
+                        entry_price_2=t["entry_price_2"],
+                        exit_timestamp=t["exit_date"],
+                        exit_price_1=t["exit_price_1"],
+                        exit_price_2=t["exit_price_2"],
+                        exit_z=t["exit_z"],
+                        exit_reason=t["exit_reason"],
+                        hedge_ratio=t["hedge_ratio"],
+                        estimated_costs_bps=t["total_cost_bps"],
+                        entry_z_actual=t.get("entry_z"),
+                    )
+                    if ok:
+                        closed_ok += 1
+                    else:
+                        closed_fail += 1
+                else:
+                    closed_fail += 1
+
+            if closed_ok or closed_fail:
+                print(f"\n  Ledger: {closed_ok} trial(s) closed"
+                      + (f"  ({closed_fail} unmatched)" if closed_fail else ""))
+        except ImportError:
+            pass  # trial_ledger not yet on path — silent
 
     print()
 

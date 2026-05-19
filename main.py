@@ -14,6 +14,12 @@ from tasks import build_tasks
 from data_manager import ensure_data, tickers_from_pairs
 from dossier import render_dossier
 from promote import run as promote_run
+from trial_ledger import (
+    record_active_verdict,
+    parse_gate_results,
+    parse_statistical_snapshot,
+    init_trial_ledger,
+)
 
 data_dir   = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
 report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
@@ -181,6 +187,11 @@ if __name__ == "__main__":
     print()
     log.info(f"=== RUN START  {source}  ({n} pairs) ===")
 
+    # ── Initialise trial ledger ───────────────────────────────────────────────
+    ledger_db_path = os.path.join(data_dir, "trial_ledger.db")
+    init_trial_ledger(ledger_db_path)
+    log.info(f"Trial ledger: {ledger_db_path}")
+
     # ── Ensure data ───────────────────────────────────────────────────────────
     tickers     = tickers_from_pairs(pairs)
     data_status = ensure_data(tickers, data_dir)
@@ -296,6 +307,36 @@ if __name__ == "__main__":
         is_actionable = not crew_error and (
             "ACTIVE" in verdict_upper or "MONITOR-NEAR" in verdict_upper
         )
+
+        # ── Record ACTIVE verdicts to trial ledger ────────────────────────────
+        if not crew_error and "ACTIVE" in verdict_upper and "MONITOR" not in verdict_upper:
+            try:
+                gate_results = parse_gate_results(verdict_text)
+                snapshot     = parse_statistical_snapshot(verdict_text)
+                verdict_id   = record_active_verdict(
+                    db_path=ledger_db_path,
+                    ticker1=ticker1,
+                    ticker2=ticker2,
+                    label=label,
+                    gate_results=gate_results,
+                    entry_z=snapshot.get("entry_z_verdict"),
+                    half_life=snapshot.get("half_life"),
+                    snr=snapshot.get("snr"),
+                    episodes=snapshot.get("episodes"),
+                    trace_stat=snapshot.get("trace_stat"),
+                    crit_95=snapshot.get("crit_95"),
+                    hedge_ratio=snapshot.get("hedge_ratio"),
+                    spread_mean=snapshot.get("spread_mean"),
+                    spread_std=snapshot.get("spread_std"),
+                    notes=f"report={os.path.basename(report_path)}",
+                )
+                if verdict_id:
+                    print(f"         ↳ ledger  → trial {verdict_id}")
+                    log.info(f"LEDGER  → trial {verdict_id}  ({ticker1}/{ticker2})")
+                else:
+                    log.warning(f"LEDGER insert failed for {ticker1}/{ticker2}")
+            except Exception as e:
+                log.warning(f"LEDGER insert error for {label}: {e}")
         if is_actionable:
             try:
                 lookback_days = pair.get("lookback_years", 5) * 252 // 12
