@@ -526,7 +526,7 @@ class CorrelationDecayTool(BaseTool):
                 daily_volume2_m=_avg_volume_2_m,
                 is_etf1=ticker1.upper() in _known_etfs,
                 is_etf2=ticker2.upper() in _known_etfs,
-                half_life_days=half_life if half_life and half_life > 0 else 30.0,
+                half_life_days=half_life_raw if half_life_raw and half_life_raw > 0 else 30.0,
                 ticker1=ticker1,
                 ticker2=ticker2,
             )
