@@ -2,25 +2,26 @@
 """
 ShiftInnerV — Liquid Universe Builder
 ======================================
-Builds a composition yaml from a liquid stock universe for screening.
+Builds an intra-sector composition yaml from the S&P 500 universe.
 
-Universe options:
-  --tier 1  S&P 500 + sector ETFs (~530 tickers, ~140K pairs, ~3 hrs at 8 workers)
-  --tier 2  S&P 500 + NASDAQ extras + ETFs (~600 tickers, ~180K pairs, ~4 hrs)
+Intra-sector mode (default): only generates pairs where both tickers
+share the same GICS sector. Reduces ~123K cross-sector pairs to ~8-10K
+economically coherent pairs. Mean reversion is faster and more reliable
+within sector (shared macro drivers, similar cost structures).
 
-The S&P 500 constituent list is fetched live from Wikipedia at runtime
-(standard approach used by finance libraries). A hardcoded fallback is
-used if Wikipedia is unreachable.
+GICS Sectors (11):
+  Communication Services, Consumer Discretionary, Consumer Staples,
+  Energy, Financials, Health Care, Industrials, Information Technology,
+  Materials, Real Estate, Utilities
 
 Usage:
-    python scripts/build_liquid_universe.py              # download + generate
-    python scripts/build_liquid_universe.py --check      # what's missing?
+    python scripts/build_liquid_universe.py              # intra-sector (default)
+    python scripts/build_liquid_universe.py --all-pairs  # all combinations
+    python scripts/build_liquid_universe.py --check      # data status
     python scripts/build_liquid_universe.py --generate-only
-    python scripts/build_liquid_universe.py --tier 2
+    python scripts/build_liquid_universe.py --tier 2     # adds sub-industry pairs
 
-After running:
-    python monitor.py --screen compositions/composition_tier1_*.yaml --workers 8
-    (or let sentinel pick it up on next scheduled run)
+Runtime: ~45-60 min first download, ~30s to generate yaml
 """
 
 import os
@@ -30,6 +31,7 @@ import argparse
 import datetime
 import itertools
 from pathlib import Path
+from collections import defaultdict
 
 import pandas as pd
 import yfinance as yf
@@ -39,125 +41,227 @@ load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-PROJECT_DIR = Path(__file__).parent.parent   # scripts/ -> project root
+PROJECT_DIR = Path(__file__).parent.parent
 DATA_DIR    = Path(os.getenv("DATA_STORAGE_PATH",
                              "~/projects/ShiftInnerV_Data")).expanduser()
 COMP_DIR    = PROJECT_DIR / "compositions"
 
+# ── Sector ETFs (always included, paired cross-sector intentionally) ──────────
 
-# ── S&P 500 fetch ─────────────────────────────────────────────────────────────
-
-# Hardcoded fallback — current as of May 2026
-# Kept as backup if Wikipedia is unreachable
-SP500_FALLBACK = [
-    "MMM","AOS","ABT","ABBV","ACN","ADBE","AMD","AES","AFL","A","APD","ABNB",
-    "AKAM","ALB","ARE","ALGN","ALLE","LNT","ALL","GOOGL","GOOG","MO","AMZN",
-    "AMCR","AEE","AAL","AEP","AXP","AIG","AMT","AWK","AMP","AME","AMGN",
-    "APH","ADI","ANSS","AON","APA","AAPL","AMAT","APTV","ACGL","ADM","ANET",
-    "AJG","AIZ","T","ATO","ADSK","ADP","AZO","AVB","AVY","AXON","BKR","BALL",
-    "BAC","BBWI","BAX","BDX","BRK-B","BBY","BIO","TECH","BIIB","BLK","BX",
-    "BA","BCR","BSX","BMY","AVGO","BR","BRO","BF-B","BLDR","BG","CDNS","CZR",
-    "CPT","CPB","COF","CAH","KMX","CCL","CARR","CTLT","CAT","CBOE","CBRE",
-    "CDW","CE","COR","CNC","CNX","CDAY","CF","CRL","SCHW","CHTR","CVX","CMG",
-    "CB","CHD","CI","CINF","CTAS","CSCO","C","CFG","CLX","CME","CMS","KO",
-    "CTSH","CL","CMCSA","CMA","CAG","COP","ED","STZ","CEG","COO","CPRT",
-    "GLW","CPAY","CTVA","CSGP","COST","CTRA","CCI","CSX","CMI","CVS","DHI",
-    "DHR","DRI","DVA","DAY","DE","DELL","DAL","DVN","DXCM","FANG","DLR",
-    "DFS","DG","DLTR","D","DPZ","DOV","DOW","DTE","DUK","DD","EMN",
-    "ETN","EBAY","ECL","EIX","EW","EA","ELV","LLY","EMR","ENPH","ETR","EOG",
-    "EPAM","EQT","EFX","EQIX","EQR","ESS","EL","ETSY","EV","EVRG","ES","EXC",
-    "EXPE","EXPD","EXR","XOM","FFIV","FDS","FICO","FAST","FRT","FDX","FIS",
-    "FITB","FSLR","FE","FI","FMC","F","FTNT","FTV","FOXA","FOX","BEN","FCX",
-    "GRMN","IT","GE","GEHC","GEN","GNRC","GD","GIS","GM","GPC","GILD","GPN",
-    "GL","GS","HAL","HIG","HAS","HCA","DOC","HSIC","HSY","HES","HPE","HLT",
-    "HOLX","HD","HON","HRL","HST","HWM","HPQ","HUBB","HUM","HBAN","HII",
-    "IBM","IEX","IDXX","ITW","ILMN","INCY","IR","PODD","INTC","ICE","IFF",
-    "IP","IPG","INTU","ISRG","IVZ","INVH","IQV","IRM","JBHT","JBL","JKHY",
-    "J","JNJ","JCI","JPM","JNPR","K","KVUE","KDP","KEY","KEYS","KMB","KIM",
-    "KMI","KLAC","KHC","KR","LH","LRCX","LW","LVS","LDOS","LEN","LIN","LYV",
-    "LKQ","LMT","L","LOW","LULU","LYB","MTB","MRO","MPC","MKTX","MAR","MMC",
-    "MLM","MAS","MA","MTCH","MKC","MCD","MCK","MDT","MRK","META","MET","MTD",
-    "MGM","MCHP","MU","MSFT","MAA","MRNA","MHK","MOH","TAP","MDLZ","MPWR",
-    "MNST","MCO","MS","MOS","MSI","MSCI","NDAQ","NTAP","NFLX","NEM","NWSA",
-    "NWS","NEE","NKE","NI","NDSN","NSC","NTRS","NOC","NCLH","NRG","NUE",
-    "NVDA","NVR","NXPI","ORLY","OXY","ODFL","OMC","ON","OKE","ORCL","OTIS",
-    "PCAR","PKG","PLTR","PH","PAYX","PAYC","PYPL","PNR","PEP","PFE","PCG",
-    "PM","PSX","PNW","PNC","POOL","PPG","PPL","PFG","PG","PGR","PLD","PRU",
-    "PEG","PTC","PSA","PHM","QRVO","PWR","QCOM","DGX","RL","RJF","RTX",
-    "O","REG","REGN","RF","RSG","RMD","RVTY","ROK","ROL","ROP","ROST","RCL",
-    "SPGI","CRM","SBAC","SLB","STX","SRE","NOW","SHW","SPG","SWKS","SJM",
-    "SNA","SOLV","SO","LUV","SWK","SBUX","STT","STLD","STE","SYK","SMCI",
-    "SYF","SNPS","SYY","TMUS","TROW","TTWO","TPR","TRGP","TGT","TEL","TDY",
-    "TFX","TER","TSLA","TXN","TXT","TMO","TJX","TSCO","TT","TDG","TRV",
-    "TRMB","TFC","TYL","TSN","USB","UBER","UDR","ULTA","UNP","UAL","UPS",
-    "URI","UNH","UHS","VLO","VTR","VLTO","VRSN","VRSK","VZ","VRTX","VICI",
-    "V","VST","VMC","WRB","GWW","WAB","WBA","WMT","DIS","WBD","WM","WAT",
-    "WEC","WFC","WELL","WST","WDC","WRK","WY","WHR","WMB","WTW","WYNN","XEL",
-    "XYL","YUM","ZBRA","ZBH","ZTS",
-]
-
-# Sector + thematic ETFs to add on top of the stock universe
-ETFS = [
+SECTOR_ETFS = {
     # Broad market
-    "SPY","QQQ","IWM","DIA","VTI",
-    # SPDR sectors (complete set)
-    "XLK","XLF","XLE","XLV","XLI","XLY","XLP","XLB","XLU","XLRE","XLC",
-    # Thematic equity
-    "SOXX","SMH","IBB","GDX","GDXJ","ITB","XRT","KRE","KBE","IAI",
-    # Commodities + alternatives
-    "GLD","IAU","SLV","USO","BNO","UNG","DBC","CORN","WEAT","SOYB",
+    "SPY": "Broad Market", "QQQ": "Broad Market", "IWM": "Broad Market",
+    "DIA": "Broad Market", "VTI": "Broad Market",
+    # SPDR sectors
+    "XLK": "Information Technology", "XLF": "Financials",
+    "XLE": "Energy",                  "XLV": "Health Care",
+    "XLI": "Industrials",             "XLY": "Consumer Discretionary",
+    "XLP": "Consumer Staples",        "XLB": "Materials",
+    "XLU": "Utilities",               "XLRE": "Real Estate",
+    "XLC": "Communication Services",
+    # Thematic
+    "SOXX": "Information Technology", "SMH": "Information Technology",
+    "IBB": "Health Care",             "GDX": "Materials",
+    "GDXJ": "Materials",              "KRE": "Financials",
+    "KBE": "Financials",              "IAI": "Financials",
+    "ITB": "Consumer Discretionary",  "XRT": "Consumer Discretionary",
+    # Commodities + alts
+    "GLD": "Commodities", "IAU": "Commodities", "SLV": "Commodities",
+    "USO": "Commodities", "BNO": "Commodities", "UNG": "Commodities",
+    "DBC": "Commodities", "CORN": "Commodities", "WEAT": "Commodities",
     # Fixed income
-    "TLT","IEF","SHY","HYG","LQD","AGG","BND","MBB",
-    # International / EM
-    "EEM","EWJ","EWZ","FXI","KWEB","ASHR","CQQQ","EWT","EWY",
+    "TLT": "Fixed Income", "IEF": "Fixed Income", "SHY": "Fixed Income",
+    "HYG": "Fixed Income", "LQD": "Fixed Income", "AGG": "Fixed Income",
+    # International
+    "EEM": "International", "EWJ": "International", "EWZ": "International",
+    "FXI": "International", "KWEB": "International", "ASHR": "International",
+    "CQQQ": "International", "EWT": "International", "EWY": "International",
     # Currency
-    "UUP","UDN","FXE","FXB","FXC","FXF",
+    "UUP": "Currency", "UDN": "Currency", "FXE": "Currency",
+    "FXB": "Currency",  "FXC": "Currency",  "FXF": "Currency",
+}
+
+# ── Hardcoded S&P 500 fallback with GICS sectors ─────────────────────────────
+# Format: "TICKER:SECTOR_CODE"
+# Sector codes: IT=Information Technology, FIN=Financials, HC=Health Care,
+#   CD=Consumer Discretionary, CS=Consumer Staples, IND=Industrials,
+#   COM=Communication Services, EN=Energy, MAT=Materials, RE=Real Estate, UT=Utilities
+
+SP500_WITH_SECTORS = [
+    # Information Technology
+    ("AAPL","IT"),("MSFT","IT"),("NVDA","IT"),("AVGO","IT"),("AMD","IT"),
+    ("ORCL","IT"),("CRM","IT"),("ACN","IT"),("IBM","IT"),("CSCO","IT"),
+    ("TXN","IT"),("ADBE","IT"),("QCOM","IT"),("AMAT","IT"),("NOW","IT"),
+    ("INTU","IT"),("ADI","IT"),("LRCX","IT"),("MU","IT"),("KLAC","IT"),
+    ("PANW","IT"),("CDNS","IT"),("SNPS","IT"),("ANSS","IT"),("APH","IT"),
+    ("TEL","IT"),("FTNT","IT"),("NXPI","IT"),("ON","IT"),("MCHP","IT"),
+    ("SWKS","IT"),("QRVO","IT"),("HPQ","IT"),("HPE","IT"),("WDC","IT"),
+    ("STX","IT"),("NTAP","IT"),("CDW","IT"),("PTC","IT"),("TDY","IT"),
+    ("KEYS","IT"),("JNPR","IT"),("GLW","IT"),("FFIV","IT"),("ZBRA","IT"),
+    ("TER","IT"),("ENPH","IT"),("MPWR","IT"),("SMCI","IT"),
+    # Financials
+    ("JPM","FIN"),("BAC","FIN"),("WFC","FIN"),("GS","FIN"),("MS","FIN"),
+    ("BRK-B","FIN"),("V","FIN"),("MA","FIN"),("AXP","FIN"),("BLK","FIN"),
+    ("SCHW","FIN"),("SPGI","FIN"),("MCO","FIN"),("ICE","FIN"),("CME","FIN"),
+    ("CB","FIN"),("MMC","FIN"),("AON","FIN"),("AJG","FIN"),("TRV","FIN"),
+    ("AFL","FIN"),("ALL","FIN"),("MET","FIN"),("PRU","FIN"),("AIG","FIN"),
+    ("PGR","FIN"),("CI","FIN"),("HUM","FIN"),("ELV","FIN"),("CNC","FIN"),
+    ("USB","FIN"),("PNC","FIN"),("TFC","FIN"),("MTB","FIN"),("CFG","FIN"),
+    ("HBAN","FIN"),("RF","FIN"),("KEY","FIN"),("FI","FIN"),("FIS","FIN"),
+    ("PYPL","FIN"),("COF","FIN"),("DFS","FIN"),("SYF","FIN"),("FITB","FIN"),
+    ("IVZ","FIN"),("BEN","FIN"),("RJF","FIN"),("MKTX","FIN"),("WRB","FIN"),
+    ("LNC","FIN"),("GL","FIN"),("AIZ","FIN"),("ACGL","FIN"),
+    # Health Care
+    ("JNJ","HC"),("LLY","HC"),("ABBV","HC"),("MRK","HC"),("TMO","HC"),
+    ("ABT","HC"),("DHR","HC"),("AMGN","HC"),("GILD","HC"),("REGN","HC"),
+    ("VRTX","HC"),("ISRG","HC"),("SYK","HC"),("MDT","HC"),("BSX","HC"),
+    ("CVS","HC"),("EW","HC"),("BIIB","HC"),("IDXX","HC"),("DXCM","HC"),
+    ("IQV","HC"),("ZBH","HC"),("BAX","HC"),("BDX","HC"),("HOLX","HC"),
+    ("ALGN","HC"),("PFE","HC"),("HCA","HC"),("UNH","HC"),("MOH","HC"),
+    ("HUM","HC"),("INCY","HC"),("MRNA","HC"),("ILMN","HC"),("PODD","HC"),
+    ("RVTY","HC"),("MTD","HC"),("A","HC"),("TECH","HC"),("HSIC","HC"),
+    ("GEHC","HC"),("SOLV","HC"),("CRL","HC"),
+    # Consumer Discretionary
+    ("AMZN","CD"),("TSLA","CD"),("HD","CD"),("MCD","CD"),("NKE","CD"),
+    ("LOW","CD"),("SBUX","CD"),("BKNG","CD"),("TJX","CD"),("ORLY","CD"),
+    ("MAR","CD"),("GM","CD"),("F","CD"),("ROST","CD"),("YUM","CD"),
+    ("DHI","CD"),("LEN","CD"),("PHM","CD"),("NVR","CD"),("TOL","CD"),
+    ("CMG","CD"),("DPZ","CD"),("HLT","CD"),("WYNN","CD"),("LVS","CD"),
+    ("MGM","CD"),("NCLH","CD"),("RCL","CD"),("CCL","CD"),("EXPE","CD"),
+    ("ABNB","CD"),("EBAY","CD"),("ETSY","CD"),("BBY","CD"),("TGT","CD"),
+    ("KMX","CD"),("AZO","CD"),("GPC","CD"),("LKQ","CD"),("APTV","CD"),
+    ("RL","CD"),("BBWI","CD"),("TPR","CD"),("PVH","CD"),("HAS","CD"),
+    ("MTCH","CD"),("LYV","CD"),
+    # Consumer Staples
+    ("PG","CS"),("KO","CS"),("PEP","CS"),("COST","CS"),("WMT","CS"),
+    ("PM","CS"),("MO","CS"),("MDLZ","CS"),("KHC","CS"),("GIS","CS"),
+    ("K","CS"),("CAG","CS"),("HRL","CS"),("MKC","CS"),("CPB","CS"),
+    ("SJM","CS"),("TAP","CS"),("BG","CS"),("ADM","CS"),("MOS","CS"),
+    ("NTR","CS"),("KMB","CS"),("CL","CS"),("CHD","CS"),("EL","CS"),
+    ("COTY","CS"),("KVUE","CS"),("KDP","CS"),("MNST","CS"),
+    # Industrials
+    ("RTX","IND"),("HON","IND"),("BA","IND"),("CAT","IND"),("DE","IND"),
+    ("GE","IND"),("MMM","IND"),("LMT","IND"),("NOC","IND"),("GD","IND"),
+    ("HII","IND"),("LHX","IND"),("TDG","IND"),("TXT","IND"),("HWM","IND"),
+    ("ETN","IND"),("EMR","IND"),("ITW","IND"),("PH","IND"),("ROK","IND"),
+    ("AME","IND"),("IR","IND"),("CARR","IND"),("OTIS","IND"),("XYL","IND"),
+    ("PCAR","IND"),("CMI","IND"),("CSX","IND"),("NSC","IND"),("UNP","IND"),
+    ("FDX","IND"),("UPS","IND"),("DAL","IND"),("UAL","IND"),("LUV","IND"),
+    ("AAL","IND"),("EXPD","IND"),("JBHT","IND"),("ODFL","IND"),("CPRT","IND"),
+    ("RSG","IND"),("WM","IND"),("FAST","IND"),("GWW","IND"),("MSI","IND"),
+    ("CTAS","IND"),("ROL","IND"),("LDOS","IND"),("SAIC","IND"),("J","IND"),
+    ("VRSK","IND"),("DNB","IND"),("NDSN","IND"),("ITT","IND"),
+    # Communication Services
+    ("GOOGL","COM"),("GOOG","COM"),("META","COM"),("NFLX","COM"),
+    ("CMCSA","COM"),("DIS","COM"),("WBD","COM"),("PARA","COM"),
+    ("FOXA","COM"),("FOX","COM"),("NWSA","COM"),("NWS","COM"),
+    ("TMUS","COM"),("VZ","COM"),("T","COM"),("LUMN","COM"),
+    ("OMC","COM"),("IPG","COM"),("EA","COM"),("TTWO","COM"),
+    ("MTCH","COM"),("ZM","COM"),("SNAP","COM"),("PINS","COM"),
+    # Energy
+    ("XOM","EN"),("CVX","EN"),("COP","EN"),("EOG","EN"),("SLB","EN"),
+    ("MPC","EN"),("PSX","EN"),("VLO","EN"),("OXY","EN"),("DVN","EN"),
+    ("FANG","EN"),("HES","EN"),("HAL","EN"),("BKR","EN"),("APA","EN"),
+    ("OKE","EN"),("TRGP","EN"),("WMB","EN"),("KMI","EN"),("ET","EN"),
+    ("CNX","EN"),("EQT","EN"),("COG","EN"),("RRC","EN"),("AR","EN"),
+    ("MRO","EN"),("NRG","EN"),("VST","EN"),("CEG","EN"),
+    # Materials
+    ("LIN","MAT"),("APD","MAT"),("ECL","MAT"),("SHW","MAT"),("PPG","MAT"),
+    ("FCX","MAT"),("NEM","MAT"),("ALB","MAT"),("EMN","MAT"),("CF","MAT"),
+    ("MOS","MAT"),("NTR","MAT"),("PKG","MAT"),("IP","MAT"),("WRK","MAT"),
+    ("AVY","MAT"),("SEE","MAT"),("SON","MAT"),("BLL","MAT"),("BALL","MAT"),
+    ("CE","MAT"),("DD","MAT"),("DOW","MAT"),("LYB","MAT"),("MLM","MAT"),
+    ("VMC","MAT"),("FMC","MAT"),("IFF","MAT"),("RPM","MAT"),
+    # Real Estate
+    ("PLD","RE"),("AMT","RE"),("EQIX","RE"),("CCI","RE"),("SBAC","RE"),
+    ("SPG","RE"),("O","RE"),("PSA","RE"),("EQR","RE"),("AVB","RE"),
+    ("ESS","RE"),("MAA","RE"),("UDR","RE"),("CPT","RE"),("AIR","RE"),
+    ("ARE","RE"),("BXP","RE"),("VTR","RE"),("WELL","RE"),("DOC","RE"),
+    ("HST","RE"),("RHP","RE"),("PEB","RE"),("SLG","RE"),("KIM","RE"),
+    ("REG","RE"),("FRT","RE"),("NNN","RE"),("INVH","RE"),("TRNO","RE"),
+    ("IRM","RE"),("DLR","RE"),("EXR","RE"),("CUBE","RE"),("LSI","RE"),
+    # Utilities
+    ("NEE","UT"),("DUK","UT"),("SO","UT"),("AEP","UT"),("EXC","UT"),
+    ("SRE","UT"),("D","UT"),("PCG","UT"),("PEG","UT"),("ED","UT"),
+    ("XEL","UT"),("WEC","UT"),("ES","UT"),("DTE","UT"),("ETR","UT"),
+    ("PPL","UT"),("AEE","UT"),("CMS","UT"),("NI","UT"),("EVRG","UT"),
+    ("LNT","UT"),("PNW","UT"),("ATO","UT"),("NWE","UT"),
 ]
 
-# NASDAQ extras not in S&P 500 (for tier 2)
-NDX_EXTRA = [
-    "MELI","ABNB","DDOG","CRWD","ZS","OKTA","TEAM","WDAY","SNOW","COIN",
-    "RBLX","PLTR","HOOD","AFRM","SOFI","RIVN","LCID","CHWY","PINS","SNAP",
-    "UBER","LYFT","DASH","SPOT","TWLO","NET","MDB","BILL","HUBS","VEEV",
-]
+SECTOR_NAMES = {
+    "IT": "Information Technology",
+    "FIN": "Financials",
+    "HC": "Health Care",
+    "CD": "Consumer Discretionary",
+    "CS": "Consumer Staples",
+    "IND": "Industrials",
+    "COM": "Communication Services",
+    "EN": "Energy",
+    "MAT": "Materials",
+    "RE": "Real Estate",
+    "UT": "Utilities",
+}
 
 
-def fetch_sp500_wikipedia() -> list[str]:
+# ── Fetch S&P 500 with sectors from Wikipedia ─────────────────────────────────
+
+def fetch_sp500_with_sectors() -> dict[str, str]:
     """
-    Fetch current S&P 500 tickers from Wikipedia.
-    Returns list of ticker symbols, or empty list on failure.
+    Returns {ticker: gics_sector} for all S&P 500 constituents.
+    Falls back to hardcoded list if Wikipedia is unreachable.
     """
     try:
-        print("  Fetching S&P 500 constituents from Wikipedia...", end=" ", flush=True)
+        print("  Fetching S&P 500 + GICS sectors from Wikipedia...", end=" ", flush=True)
         tables = pd.read_html(
             "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
             attrs={"id": "constituents"},
         )
         df = tables[0]
-        tickers = df["Symbol"].tolist()
-        # Wikipedia uses dots for BRK.B, BF.B etc — convert to hyphens for yfinance
-        tickers = [t.replace(".", "-") for t in tickers]
-        print(f"{len(tickers)} tickers ✓")
-        return tickers
+        df["Symbol"] = df["Symbol"].str.replace(".", "-", regex=False)
+        sector_map = dict(zip(df["Symbol"], df["GICS Sector"]))
+        print(f"{len(sector_map)} tickers ✓")
+        return sector_map
     except Exception as exc:
         print(f"failed ({exc}) — using hardcoded fallback")
-        return []
+        return {}
 
 
-def build_universe(tier: int = 1) -> list[str]:
-    """Build the full ticker universe for the given tier."""
-    # Try live fetch first
-    sp500 = fetch_sp500_wikipedia()
+def build_sector_map(tier: int = 1) -> dict[str, str]:
+    """
+    Returns {ticker: sector_label} for the full universe including ETFs.
+    Tries Wikipedia first, falls back to hardcoded list.
+    """
+    # Try live Wikipedia fetch
+    sector_map = fetch_sp500_with_sectors()
 
-    if not sp500:
-        print(f"  Using hardcoded fallback ({len(SP500_FALLBACK)} tickers)")
-        sp500 = SP500_FALLBACK
+    if not sector_map:
+        # Use hardcoded fallback
+        print(f"  Using hardcoded fallback ({len(SP500_WITH_SECTORS)} stocks)")
+        sector_map = {
+            t: SECTOR_NAMES[s] for t, s in SP500_WITH_SECTORS
+        }
 
-    base = sp500 + ETFS
+    # Add sector ETFs
+    sector_map.update(SECTOR_ETFS)
+
+    # Tier 2: add NASDAQ extras with their sectors
     if tier >= 2:
-        base = base + NDX_EXTRA
+        ndx_extras = {
+            "MELI": "Consumer Discretionary", "ABNB": "Consumer Discretionary",
+            "DDOG": "Information Technology",  "CRWD": "Information Technology",
+            "ZS":   "Information Technology",  "OKTA": "Information Technology",
+            "TEAM": "Information Technology",  "WDAY": "Information Technology",
+            "SNOW": "Information Technology",  "COIN": "Financials",
+            "RBLX": "Communication Services",  "PLTR": "Information Technology",
+            "UBER": "Industrials",              "LYFT": "Industrials",
+            "DASH": "Consumer Discretionary",  "SPOT": "Communication Services",
+            "TWLO": "Information Technology",  "NET":  "Information Technology",
+            "MDB":  "Information Technology",  "BILL": "Financials",
+            "HUBS": "Information Technology",  "VEEV": "Health Care",
+        }
+        sector_map.update(ndx_extras)
 
-    return list(dict.fromkeys(base))  # deduplicate, preserve order
+    return sector_map
 
 
 # ── Download ──────────────────────────────────────────────────────────────────
@@ -176,70 +280,52 @@ def needs_download(ticker: str, stale_days: int = 1) -> tuple[bool, str]:
 def download_ticker(ticker: str) -> tuple[bool, int]:
     try:
         df = yf.download(
-            ticker,
-            period="5y",
-            auto_adjust=True,
-            progress=False,
-            multi_level_index=False,
+            ticker, period="5y", auto_adjust=True,
+            progress=False, multi_level_index=False,
         )
         if df.empty:
             return False, 0
-        path = DATA_DIR / f"{ticker.lower()}_daily.csv"
-        df.to_csv(path)
+        (DATA_DIR / f"{ticker.lower()}_daily.csv").write_text(df.to_csv())
         return True, len(df)
     except Exception as exc:
         print(f"    FAIL {ticker}: {exc}")
         return False, 0
 
 
-def download_universe(tickers: list[str], force: bool = False) -> dict:
+def download_universe(tickers: list[str], force: bool = False) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    results = {}
-    to_download = []
-
-    for ticker in tickers:
-        needed, reason = needs_download(ticker)
-        if force or needed:
-            to_download.append((ticker, reason))
-        else:
-            results[ticker] = "fresh"
+    to_download = [(t, r) for t in tickers
+                   for needed, r in [needs_download(t)] if force or needed]
+    fresh = len(tickers) - len(to_download)
 
     print(f"\n{'─'*60}")
     print(f"Universe: {len(tickers)} tickers")
-    print(f"Already fresh: {len(tickers) - len(to_download)}")
+    print(f"Already fresh: {fresh}")
     print(f"To download:   {len(to_download)}")
-    print(f"Estimated download time: ~{len(to_download) * 0.5 / 60:.0f} min")
+    print(f"Est. time: ~{len(to_download)*0.4/60:.0f} min")
     print(f"{'─'*60}\n")
 
     if not to_download:
-        print("All data is fresh — nothing to download.")
-        return results
+        print("All data is fresh.")
+        return
 
     failed = []
     for i, (ticker, reason) in enumerate(to_download, 1):
         print(f"  [{i:>3}/{len(to_download)}]  {ticker:<8} ({reason}) ...", end=" ", flush=True)
         ok, rows = download_ticker(ticker)
-        if ok:
-            print(f"{rows} rows ✓")
-            results[ticker] = "updated"
-        else:
-            print("FAILED ✗")
-            results[ticker] = "failed"
+        print(f"{rows} rows ✓" if ok else "FAILED ✗")
+        if not ok:
             failed.append(ticker)
-        time.sleep(0.4)  # gentle rate limiting
+        time.sleep(0.4)
 
-    print(f"\nDownload complete.")
-    print(f"  Success: {len(to_download) - len(failed)}")
-    print(f"  Failed:  {len(failed)}")
+    print(f"\nDone. Success: {len(to_download)-len(failed)}  Failed: {len(failed)}")
     if failed:
-        print(f"  Failed tickers: {', '.join(failed)}")
-    return results
+        print(f"Failed: {', '.join(failed)}")
 
 
 # ── ADV filter ────────────────────────────────────────────────────────────────
 
 def measure_adv(ticker: str, days: int = 63) -> float | None:
-    """Average daily dollar volume in $M from local CSV data."""
     path = DATA_DIR / f"{ticker.lower()}_daily.csv"
     if not path.exists():
         return None
@@ -247,9 +333,8 @@ def measure_adv(ticker: str, days: int = 63) -> float | None:
         df = pd.read_csv(path, index_col=0, parse_dates=True)
         if "Close" not in df.columns or "Volume" not in df.columns:
             return None
-        recent = df.tail(days)
-        adv = (recent["Close"] * recent["Volume"]).mean()
-        return float(adv / 1_000_000)
+        r = df.tail(days)
+        return float((r["Close"] * r["Volume"]).mean() / 1_000_000)
     except Exception:
         return None
 
@@ -257,74 +342,99 @@ def measure_adv(ticker: str, days: int = 63) -> float | None:
 # ── YAML generation ───────────────────────────────────────────────────────────
 
 def generate_yaml(
-    tickers: list[str],
+    sector_map: dict[str, str],
     adv_threshold_m: float = 50.0,
     lookback_years: int = 3,
+    intra_sector: bool = True,
     output_path: Path | None = None,
     tier: int = 1,
 ) -> Path:
-    etf_set = set(ETFS)
 
+    # ADV filter
     print(f"\nValidating ADV (threshold: ${adv_threshold_m:.0f}M)...")
     passing, skipped = [], []
-    for ticker in tickers:
+    for ticker in sector_map:
         adv = measure_adv(ticker)
         if adv is None:
             skipped.append((ticker, "no data"))
         elif adv < adv_threshold_m:
-            skipped.append((ticker, f"ADV ${adv:.0f}M < ${adv_threshold_m:.0f}M"))
+            skipped.append((ticker, f"ADV ${adv:.0f}M"))
         else:
             passing.append(ticker)
 
-    print(f"  Passing: {len(passing)}")
-    print(f"  Skipped: {len(skipped)}")
-    if skipped[:5]:
-        for t, r in skipped[:5]:
-            print(f"    {t}: {r}")
-        if len(skipped) > 5:
-            print(f"    ... and {len(skipped)-5} more")
+    print(f"  Passing: {len(passing)}  Skipped: {len(skipped)}")
 
-    n_pairs = len(passing) * (len(passing) - 1) // 2
-    est_mins = n_pairs * 0.5 / 8 / 60
+    # Group by sector
+    by_sector = defaultdict(list)
+    for t in passing:
+        by_sector[sector_map[t]].append(t)
+
+    print(f"\nSector breakdown (passing ADV filter):")
+    for sector in sorted(by_sector):
+        n = len(by_sector[sector])
+        pairs = n * (n-1) // 2
+        print(f"  {sector:<30} {n:>3} tickers  {pairs:>5} pairs")
+
+    # Generate pairs
     today = datetime.date.today().strftime("%Y-%m-%d")
-
-    print(f"\nGenerating yaml:")
-    print(f"  Tickers: {len(passing)}")
-    print(f"  Pairs:   {n_pairs:,}")
-    print(f"  Est. screen time at 8 workers: ~{est_mins:.0f} min (~{est_mins/60:.1f} hrs)")
-
     pair_lines = []
-    for t1, t2 in itertools.combinations(passing, 2):
-        is_etf1 = t1 in etf_set
-        is_etf2 = t2 in etf_set
-        if is_etf1 and is_etf2:
-            lb = 3
-        elif not is_etf1 and not is_etf2:
-            lb = lookback_years
-        else:
-            lb = 2   # mixed stock/ETF — shorter lookback
+    pair_count_by_sector = defaultdict(int)
 
-        pair_lines.append(
-            f"- ticker1: {t1}\n"
-            f"  ticker2: {t2}\n"
-            f"  label: '{t1} vs {t2}'\n"
-            f"  lookback_years: {lb}\n"
-            f"  cointegrated: unknown\n"
-        )
+    etf_set = set(SECTOR_ETFS.keys())
 
-    fname = f"composition_tier{tier}_liquid_{today}.yaml"
+    if intra_sector:
+        # Stock/stock pairs within sector + ETF/ETF within sector
+        for sector, tickers in by_sector.items():
+            stocks = [t for t in tickers if t not in etf_set]
+            etfs   = [t for t in tickers if t in etf_set]
+
+            # Stock vs stock (intra-sector)
+            for t1, t2 in itertools.combinations(stocks, 2):
+                pair_lines.append(_pair_entry(t1, t2, lookback_years, "stock"))
+                pair_count_by_sector[sector] += 1
+
+            # ETF vs ETF (same sector bucket)
+            for t1, t2 in itertools.combinations(etfs, 2):
+                pair_lines.append(_pair_entry(t1, t2, 3, "etf"))
+                pair_count_by_sector[sector] += 1
+
+            # Stock vs sector ETF (same sector)
+            for stock in stocks:
+                for etf in etfs:
+                    pair_lines.append(_pair_entry(stock, etf, 2, "cross"))
+                    pair_count_by_sector[sector] += 1
+    else:
+        # All combinations
+        for t1, t2 in itertools.combinations(passing, 2):
+            is_etf1 = t1 in etf_set
+            is_etf2 = t2 in etf_set
+            lb = 3 if (is_etf1 and is_etf2) else (2 if (is_etf1 or is_etf2) else lookback_years)
+            pair_lines.append(_pair_entry(t1, t2, lb, ""))
+
+    n_pairs = len(pair_lines)
+    est_mins = n_pairs * 0.5 / 8 / 60
+    mode = "intra-sector" if intra_sector else "all-pairs"
+
+    print(f"\n{'─'*50}")
+    print(f"Mode: {mode}")
+    print(f"Total pairs: {n_pairs:,}")
+    print(f"Est. screen time at 8 workers: ~{est_mins:.0f} min")
+
+    fname = f"composition_tier{tier}_{mode.replace('-','_')}_{today}.yaml"
     if output_path is None:
         output_path = COMP_DIR / fname
 
     header = f"""\
 # ShiftInnerV — Liquid Universe Composition
-# Tier {tier} — S&P 500 {'+ NASDAQ extras ' if tier >= 2 else ''}+ ETFs
+# Mode: {mode} | Tier {tier}
 # ADV filter: > ${adv_threshold_m:.0f}M
 # Generated: {today}
 # Tickers: {len(passing)}
 # Pairs:   {n_pairs:,}
-# Est. screen time: ~{est_mins:.0f} min at 8 workers (~{est_mins/60:.1f} hrs)
+# Est. screen time: ~{est_mins:.0f} min at 8 workers
 #
+# Sectors included ({len(by_sector)}):
+{''.join(f"#   {s}: {pair_count_by_sector[s]} pairs{chr(10)}" for s in sorted(by_sector))}#
 # Lookback: {lookback_years}yr stock/stock | 2yr stock/ETF | 3yr ETF/ETF
 #
 # Run:
@@ -335,22 +445,29 @@ pairs:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(header + "\n".join(pair_lines))
 
-    size_mb = output_path.stat().st_size / (1024 * 1024)
+    size_kb = output_path.stat().st_size / 1024
     print(f"\nYAML written: {output_path}")
-    print(f"File size: {size_mb:.1f} MB")
+    print(f"File size: {size_kb:.0f} KB")
     return output_path
+
+
+def _pair_entry(t1: str, t2: str, lb: int, kind: str) -> str:
+    return (
+        f"- ticker1: '{t1}'\n"
+        f"  ticker2: '{t2}'\n"
+        f"  label: '{t1} vs {t2}'\n"
+        f"  lookback_years: {lb}\n"
+        f"  cointegrated: unknown\n"
+    )
 
 
 # ── Check ─────────────────────────────────────────────────────────────────────
 
-def check_universe(tickers: list[str]) -> None:
-    missing, stale, fresh = [], [], []
-    for ticker in tickers:
-        needed, reason = needs_download(ticker)
-        if needed:
-            (missing if reason == "missing" else stale).append(ticker)
-        else:
-            fresh.append(ticker)
+def check_universe(sector_map: dict[str, str]) -> None:
+    tickers = list(sector_map.keys())
+    missing = [t for t in tickers if needs_download(t)[1] == "missing"]
+    fresh   = [t for t in tickers if not needs_download(t)[0]]
+    stale   = [t for t in tickers if needs_download(t)[0] and t not in missing]
 
     print(f"\nUniverse: {len(tickers)} tickers")
     print(f"  Fresh:   {len(fresh)}")
@@ -360,50 +477,53 @@ def check_universe(tickers: list[str]) -> None:
         print(f"\nMissing ({len(missing)}):")
         for i in range(0, len(missing), 10):
             print(f"  {' '.join(missing[i:i+10])}")
-    n_pairs = len(tickers) * (len(tickers) - 1) // 2
-    est = n_pairs * 0.5 / 8 / 60
-    print(f"\nPairs if all downloaded: {n_pairs:,} (~{est:.0f} min at 8 workers)")
+
+    # Intra-sector pair count estimate
+    by_sector = defaultdict(list)
+    for t in tickers:
+        by_sector[sector_map[t]].append(t)
+    intra = sum(n*(n-1)//2 for n in (len(v) for v in by_sector.values()))
+    total = len(tickers) * (len(tickers)-1) // 2
+    print(f"\nPair estimates (all tickers):")
+    print(f"  Intra-sector: {intra:,} (~{intra*0.5/8/60:.0f} min at 8 workers)")
+    print(f"  All-pairs:    {total:,} (~{total*0.5/8/60:.0f} min at 8 workers)")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Build liquid universe and generate ShiftInnerV composition yaml"
+        description="Build intra-sector liquid universe for ShiftInnerV"
     )
-    parser.add_argument("--tier", type=int, default=1, choices=[1, 2],
-        help="1=S&P500+ETFs (~530), 2=adds NASDAQ extras (~560)")
+    parser.add_argument("--tier", type=int, default=1, choices=[1, 2])
     parser.add_argument("--adv", type=float, default=50.0,
-        help="Min average daily dollar volume in $M (default: 50)")
-    parser.add_argument("--lookback", type=int, default=3,
-        help="Lookback years for stock/stock pairs (default: 3)")
-    parser.add_argument("--generate-only", action="store_true",
-        help="Skip downloads, generate yaml from existing data only")
-    parser.add_argument("--download-only", action="store_true",
-        help="Download data only, skip yaml generation")
-    parser.add_argument("--check", action="store_true",
-        help="Show data status without downloading or generating")
-    parser.add_argument("--force", action="store_true",
-        help="Re-download all tickers even if data is fresh")
-    parser.add_argument("--output", type=str, default=None,
-        help="Custom output yaml path")
+        help="Min ADV in $M (default: 50)")
+    parser.add_argument("--lookback", type=int, default=3)
+    parser.add_argument("--all-pairs", action="store_true",
+        help="Generate all combinations (default: intra-sector only)")
+    parser.add_argument("--generate-only", action="store_true")
+    parser.add_argument("--download-only", action="store_true")
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--output", type=str, default=None)
     args = parser.parse_args()
+
+    intra = not args.all_pairs
 
     print(f"\nShiftInnerV — Liquid Universe Builder")
     print(f"{'═'*50}")
     print(f"  Tier:     {args.tier}")
+    print(f"  Mode:     {'intra-sector' if intra else 'all-pairs'}")
     print(f"  ADV min:  ${args.adv:.0f}M")
     print(f"  Data dir: {DATA_DIR}")
     print(f"  Comp dir: {COMP_DIR}")
 
-    tickers = build_universe(args.tier)
-    n = len(tickers)
-    n_pairs = n * (n - 1) // 2
-    print(f"  Tickers:  {n}")
-    print(f"  Pairs:    {n_pairs:,}")
+    sector_map = build_sector_map(args.tier)
+    tickers    = list(sector_map.keys())
+    print(f"  Tickers:  {len(tickers)}")
 
     if args.check:
-        check_universe(tickers)
+        check_universe(sector_map)
         return
 
     if not args.generate_only:
@@ -412,9 +532,10 @@ def main():
     if not args.download_only:
         out = Path(args.output) if args.output else None
         yaml_path = generate_yaml(
-            tickers,
+            sector_map,
             adv_threshold_m=args.adv,
             lookback_years=args.lookback,
+            intra_sector=intra,
             output_path=out,
             tier=args.tier,
         )
