@@ -1,7 +1,7 @@
 """
-ShiftInnerV — Monitor Pure Function Tests
+ShiftInnerV — Spread Math Pure Function Tests
 
-Tests for the pure math functions in monitor.py:
+Tests for the pure math functions in shiftinnerv/domain/spread_math.py:
   - compute_half_life
   - compute_snr
   - johansen_approx_pvalue
@@ -26,7 +26,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from monitor import (
+from shiftinnerv.domain.spread_math import (
     apply_bh_correction,
     compute_half_life,
     compute_score,

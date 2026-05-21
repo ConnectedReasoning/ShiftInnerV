@@ -20,7 +20,7 @@ from trial_ledger import (
     parse_statistical_snapshot,
     init_trial_ledger,
 )
-from shiftinnerv.sensors.gate_evaluator import evaluate_gates
+from shiftinnerv.domain.gate_evaluator import evaluate_gates
 from shiftinnerv.sensors.composition_monitor import (
     load_compositions,
     get_pair_composition,

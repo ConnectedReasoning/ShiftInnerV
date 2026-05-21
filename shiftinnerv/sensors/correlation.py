@@ -8,7 +8,7 @@ from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
-from shiftinnerv.sensors.cost_model import (
+from shiftinnerv.domain.cost_model import (
     compute_round_trip_costs,
     compute_net_pnl,
 )
