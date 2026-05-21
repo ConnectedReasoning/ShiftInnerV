@@ -1,0 +1,210 @@
+# ShiftInnerV — Generated Composition
+# Option D — Banks / Financials Cluster (40 pairs)
+# Generated: 2026-05-17 16:47
+# Pairs: 40
+# Lookback: 3 years (sufficient for Johansen power)
+#
+# SCREENING FILE — run through monitor.py --screen before promoting to production
+# python monitor.py --screen composition_d_banks.yaml
+
+pairs:
+- ticker1: JPM
+  ticker2: BAC
+  label: 'Banks: JPM vs BAC'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: JPM
+  ticker2: GS
+  label: 'Banks: JPM vs GS'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: JPM
+  ticker2: MS
+  label: 'Banks: JPM vs MS'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: JPM
+  ticker2: BRK-B
+  label: 'Banks: JPM vs BRK-B'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BAC
+  ticker2: GS
+  label: 'Banks: BAC vs GS'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BAC
+  ticker2: MS
+  label: 'Banks: BAC vs MS'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BAC
+  ticker2: BRK-B
+  label: 'Banks: BAC vs BRK-B'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GS
+  ticker2: MS
+  label: 'Banks: GS vs MS'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GS
+  ticker2: BRK-B
+  label: 'Banks: GS vs BRK-B'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: MS
+  ticker2: BRK-B
+  label: 'Banks: MS vs BRK-B'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: JPM
+  ticker2: KBE
+  label: 'Bank: JPM vs KBE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: JPM
+  ticker2: KRE
+  label: 'Bank: JPM vs KRE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: JPM
+  ticker2: IAI
+  label: 'Bank: JPM vs IAI'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: JPM
+  ticker2: XLF
+  label: 'Bank: JPM vs XLF'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BAC
+  ticker2: KBE
+  label: 'Bank: BAC vs KBE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BAC
+  ticker2: KRE
+  label: 'Bank: BAC vs KRE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BAC
+  ticker2: IAI
+  label: 'Bank: BAC vs IAI'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BAC
+  ticker2: XLF
+  label: 'Bank: BAC vs XLF'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GS
+  ticker2: KBE
+  label: 'Bank: GS vs KBE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GS
+  ticker2: KRE
+  label: 'Bank: GS vs KRE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GS
+  ticker2: IAI
+  label: 'Bank: GS vs IAI'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: GS
+  ticker2: XLF
+  label: 'Bank: GS vs XLF'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: MS
+  ticker2: KBE
+  label: 'Bank: MS vs KBE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: MS
+  ticker2: KRE
+  label: 'Bank: MS vs KRE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: MS
+  ticker2: IAI
+  label: 'Bank: MS vs IAI'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: MS
+  ticker2: XLF
+  label: 'Bank: MS vs XLF'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BRK-B
+  ticker2: KBE
+  label: 'Bank: BRK-B vs KBE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BRK-B
+  ticker2: KRE
+  label: 'Bank: BRK-B vs KRE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BRK-B
+  ticker2: IAI
+  label: 'Bank: BRK-B vs IAI'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BRK-B
+  ticker2: XLF
+  label: 'Bank: BRK-B vs XLF'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: KBE
+  ticker2: KRE
+  label: 'Bank ETF: KBE vs KRE'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: KBE
+  ticker2: IAI
+  label: 'Bank ETF: KBE vs IAI'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: KBE
+  ticker2: XLF
+  label: 'Bank ETF: KBE vs XLF'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: KRE
+  ticker2: IAI
+  label: 'Bank ETF: KRE vs IAI'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: KRE
+  ticker2: XLF
+  label: 'Bank ETF: KRE vs XLF'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: IAI
+  ticker2: XLF
+  label: 'Bank ETF: IAI vs XLF'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: JPM
+  ticker2: TLT
+  label: 'Bank vs Rates: JPM vs TLT'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: JPM
+  ticker2: IEF
+  label: 'Bank vs Rates: JPM vs IEF'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BAC
+  ticker2: TLT
+  label: 'Bank vs Rates: BAC vs TLT'
+  lookback_years: 3
+  cointegrated: unknown
+- ticker1: BAC
+  ticker2: IEF
+  label: 'Bank vs Rates: BAC vs IEF'
+  lookback_years: 3
+  cointegrated: unknown

@@ -233,5 +233,3 @@ logs/
 *.csv
 *.json
 .venv/
-compositions/
-composition_hold/
