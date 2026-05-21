@@ -17,6 +17,7 @@ Usage:
 """
 
 import os
+from pathlib import Path
 import sys
 import time
 import glob
@@ -331,9 +332,6 @@ def log_screening(result: dict):
 # working: callers may still do `from monitor import compute_snr` etc.
 # ──────────────────────────────────────────────────────────────────────────
 from shiftinnerv.domain.spread_math import (
-
-# Project root — two levels up from shiftinnerv/pipelines/
-_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
     compute_half_life,
     compute_snr,
     run_johansen,
@@ -343,6 +341,9 @@ _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
     compute_johansen_trend,
     score_label,
 )
+
+# Project root — two levels up from shiftinnerv/pipelines/
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 
 
 def write_anomaly_yaml(flagged: list, compositions_dir: str) -> list:
@@ -479,7 +480,7 @@ def run_screening(yaml_path: str, workers: int = 1, top_n: int = None,
     bh_flagged = [r for r in results if r.get("bh_flag")]
 
     displayed = 0
-    score_threshold = 15.0  # hide pure noise unless --all flag
+    score_threshold = 0.0
     for result in results:
         if "error" in result:
             continue
