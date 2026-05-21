@@ -1,5 +1,5 @@
 """
-Tests for tools/composition_monitor.py — Item 15
+Tests for shiftinner/sensors/composition_monitor.py — Item 15
 ShiftInnerV Composition Concentration Monitor
 
 Coverage:
@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tools.composition_monitor import (
+from shiftinnerv.sensors.composition_monitor import (
     ConcentrationCheckResult,
     check_composition_concentration,
     get_all_concentrations,

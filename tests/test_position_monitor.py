@@ -2,7 +2,7 @@
 ShiftInnerV — Position Monitor Tests
 Item 13 of the Council Roadmap.
 
-Tests for tools/position_monitor.py — SNR revalidation, mean drift detection,
+Tests for shiftinner/sensors/position_monitor.py — SNR revalidation, mean drift detection,
 and the HOLD / MONITOR / AUTO_CLOSE decision logic.
 
 No network calls required. Uses synthetic price CSVs and in-memory SQLite.
@@ -25,7 +25,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.position_monitor import (
+from shiftinnerv.sensors.position_monitor import (
     PositionRevalidationResult,
     compute_snr_from_prices,
     detect_mean_drift,

@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from data_manager import ensure_data
 from scipy import stats as _scipy_stats
-from tools.cost_model import (
+from shiftinnerv.sensors.cost_model import (
     compute_round_trip_costs,
     compute_net_pnl,
 )

@@ -126,7 +126,7 @@ class TestHalfLifeEstimation:
     """Unit tests for the OLS half-life estimator."""
 
     def _estimate_half_life(self, spread: pd.Series):
-        """Mirror of the half-life computation in correlation_tool.py."""
+        """Mirror of the half-life computation in correlation.py."""
         spread_lagged = spread.shift(1)
         delta_spread = spread.diff()
         valid = pd.concat([delta_spread, spread_lagged], axis=1).dropna()
@@ -198,7 +198,7 @@ class TestSNRComputation:
     """Unit tests for the SNR (Signal-to-Noise Ratio) pair score."""
 
     def _compute_snr(self, log_p1: pd.Series, log_p2: pd.Series) -> float:
-        """Mirror of the SNR computation in correlation_tool.py."""
+        """Mirror of the SNR computation in correlation.py."""
         ols = OLS(log_p1, add_constant(log_p2)).fit()
         residuals = pd.Series(ols.resid, index=log_p1.index)
         trend_component = log_p1 - residuals
@@ -270,7 +270,7 @@ class TestMeanDriftDetection:
     """Unit tests for the mean drift flag."""
 
     def _check_drift(self, spread: pd.Series, window: int) -> tuple:
-        """Mirror of the mean drift computation in correlation_tool.py."""
+        """Mirror of the mean drift computation in correlation.py."""
         rolling_mean_series = spread.rolling(window=window).mean().dropna()
         full_sample_mean = float(spread.mean())
         full_sample_std = float(spread.std(ddof=1))
@@ -313,7 +313,7 @@ class TestEpisodeDetection:
     """Unit tests for the decoupling episode detection algorithm."""
 
     def _detect_episodes(self, corr: pd.Series) -> list:
-        """Mirror of the episode detection in correlation_tool.py."""
+        """Mirror of the episode detection in correlation.py."""
         mean_corr = corr.mean()
         std_corr = corr.std()
         threshold = mean_corr - (2 * std_corr)
@@ -557,7 +557,7 @@ def tool_with_tmpdir(tmp_path):
         write_csv_pair(str(tmp_path), ticker1, ticker2, df1, df2)
 
         # Import tool and patch data_dir
-        import tools.correlation_tool as ct_module
+        import shiftinnerv.sensors.correlation as ct_module
         original_data_dir = ct_module.data_dir
         ct_module.data_dir = str(tmp_path)
 
@@ -579,7 +579,7 @@ class TestCorrelationToolIntegration:
                   lookback_years=3):
         """Helper: write CSVs, patch data_dir, return tool instance."""
         write_csv_pair(str(tmp_path), ticker1, ticker2, df1, df2)
-        import tools.correlation_tool as ct_module
+        import shiftinnerv.sensors.correlation as ct_module
         ct_module.data_dir = str(tmp_path)
         return ct_module.CorrelationDecayTool(
             expected_ticker1=ticker1,
@@ -615,7 +615,7 @@ class TestCorrelationToolIntegration:
         """Tool locked to AAA/BBB rejects a call with CCC/DDD."""
         df1, df2 = make_cointegrated_prices(n=700, seed=42)
         write_csv_pair(str(tmp_path), "AAA", "BBB", df1, df2)
-        import tools.correlation_tool as ct_module
+        import shiftinnerv.sensors.correlation as ct_module
         ct_module.data_dir = str(tmp_path)
         tool = ct_module.CorrelationDecayTool(
             expected_ticker1="AAA",
@@ -642,7 +642,7 @@ class TestCorrelationToolIntegration:
 
     def test_missing_csv_returns_error(self, tmp_path):
         """Missing CSV file returns a Tool error, not an exception."""
-        import tools.correlation_tool as ct_module
+        import shiftinnerv.sensors.correlation as ct_module
         ct_module.data_dir = str(tmp_path)
         tool = ct_module.CorrelationDecayTool(
             expected_ticker1="MISS",
@@ -689,16 +689,16 @@ class TestItem11WindowSeparation:
     """
 
     def _get_tool_source(self) -> str:
-        src_path = PROJECT_ROOT / "tools" / "correlation_tool.py"
+        src_path = PROJECT_ROOT / "shiftinner" / "sensors" / "correlation.py"
         if not src_path.exists():
-            pytest.skip("correlation_tool.py not found")
+            pytest.skip("shiftinner/sensors/correlation.py not found")
         return src_path.read_text()
 
     def test_train_window_constant_present(self):
         """TRAIN_WINDOW = 250 constant must exist in source."""
         src = self._get_tool_source()
         assert "TRAIN_WINDOW = 250" in src, (
-            "Item 11 missing: TRAIN_WINDOW = 250 not found in correlation_tool.py"
+            "Item 11 missing: TRAIN_WINDOW = 250 not found in correlation.py"
         )
 
     def test_log_prices_train_variable_present(self):
@@ -751,7 +751,7 @@ class TestItem11WindowSeparation:
         df1, df2 = make_cointegrated_prices(n=700, seed=42)
         write_csv_pair(str(tmp_path), "AAA", "BBB", df1, df2)
 
-        import tools.correlation_tool as ct_module
+        import shiftinnerv.sensors.correlation as ct_module
         ct_module.data_dir = str(tmp_path)
 
         # Patch _run to capture the split sizes by inspecting internals
@@ -779,7 +779,7 @@ class TestItem11WindowSeparation:
         df1, df2 = make_cointegrated_prices(n=700, seed=42)
         write_csv_pair(str(tmp_path), "AAA", "BBB", df1, df2)
 
-        import tools.correlation_tool as ct_module
+        import shiftinnerv.sensors.correlation as ct_module
         ct_module.data_dir = str(tmp_path)
         tool = ct_module.CorrelationDecayTool(
             expected_ticker1="AAA",
@@ -804,9 +804,9 @@ class TestItem17MultiLagJohansen:
     """
 
     def _get_tool_source(self) -> str:
-        src_path = PROJECT_ROOT / "tools" / "correlation_tool.py"
+        src_path = PROJECT_ROOT / "shiftinner" / "sensors" / "correlation.py"
         if not src_path.exists():
-            pytest.skip("correlation_tool.py not found")
+            pytest.skip("shiftinner/sensors/correlation.py not found")
         return src_path.read_text()
 
     def test_multi_lag_loop_present(self):
@@ -861,7 +861,7 @@ class TestItem17MultiLagJohansen:
         df1, df2 = make_cointegrated_prices(n=700, seed=42)
         write_csv_pair(str(tmp_path), "AAA", "BBB", df1, df2)
 
-        import tools.correlation_tool as ct_module
+        import shiftinnerv.sensors.correlation as ct_module
         ct_module.data_dir = str(tmp_path)
         tool = ct_module.CorrelationDecayTool(
             expected_ticker1="AAA",

@@ -15,7 +15,7 @@ Decision logic:
   SNR < 0.7 AND no significant drift  → MONITOR
 
 Usage:
-    from tools.position_monitor import revalidate_open_positions
+    from shiftinnerv.sensors.position_monitor import revalidate_open_positions
 
     results = revalidate_open_positions(
         db_path="trial_ledger.db",

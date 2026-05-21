@@ -2,7 +2,7 @@
 ShiftInnerV — Regime Monitor Tests
 Item 8 of the Council Roadmap.
 
-Tests for tools/regime_monitor.py — VIX-driven state machine, pair-SPY
+Tests for shiftinner/sensors/regime_monitor.py — VIX-driven state machine, pair-SPY
 correlation detection, and position sizing multiplier logic.
 
 No network calls required — VIX and price loading are mocked throughout.
@@ -25,7 +25,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.regime_monitor import (
+from shiftinnerv.sensors.regime_monitor import (
     RegimeDetector,
     RegimeSnapshot,
     RegimeState,
@@ -183,7 +183,7 @@ class TestVIXCache:
         d._last_vix = 18.5
         d._last_vix_fetch = datetime.now() - timedelta(minutes=30)
 
-        with patch("tools.regime_monitor.yf.download") as mock_dl:
+        with patch("shiftinnerv.sensors.regime_monitor.yf.download") as mock_dl:
             result = d.fetch_vix(use_cache=True)
 
         mock_dl.assert_not_called()
@@ -197,7 +197,7 @@ class TestVIXCache:
         # Simulate yfinance multi-level column format (Close, ^VIX)
         cols = pd.MultiIndex.from_tuples([("Close", "^VIX")])
         mock_df = pd.DataFrame([[21.0]], columns=cols)
-        with patch("tools.regime_monitor.yf.download", return_value=mock_df):
+        with patch("shiftinnerv.sensors.regime_monitor.yf.download", return_value=mock_df):
             result = d.fetch_vix(use_cache=True)
 
         assert result == pytest.approx(21.0)
@@ -209,7 +209,7 @@ class TestVIXCache:
 
         cols = pd.MultiIndex.from_tuples([("Close", "^VIX")])
         mock_df = pd.DataFrame([[25.0]], columns=cols)
-        with patch("tools.regime_monitor.yf.download", return_value=mock_df):
+        with patch("shiftinnerv.sensors.regime_monitor.yf.download", return_value=mock_df):
             result = d.fetch_vix(use_cache=False)
 
         assert result == pytest.approx(25.0)
@@ -219,7 +219,7 @@ class TestVIXCache:
         d._last_vix = 17.0
         d._last_vix_fetch = datetime.now() - timedelta(hours=2)
 
-        with patch("tools.regime_monitor.yf.download", return_value=pd.DataFrame()):
+        with patch("shiftinnerv.sensors.regime_monitor.yf.download", return_value=pd.DataFrame()):
             result = d.fetch_vix(use_cache=True)
 
         assert result == pytest.approx(17.0)
@@ -229,7 +229,7 @@ class TestVIXCache:
         d._last_vix = 22.0
         d._last_vix_fetch = datetime.now() - timedelta(hours=2)
 
-        with patch("tools.regime_monitor.yf.download", side_effect=Exception("network error")):
+        with patch("shiftinnerv.sensors.regime_monitor.yf.download", side_effect=Exception("network error")):
             result = d.fetch_vix(use_cache=True)
 
         assert result == pytest.approx(22.0)
@@ -237,7 +237,7 @@ class TestVIXCache:
     def test_download_exception_no_cache_returns_none(self, tmp_path):
         d = make_detector(tmp_path)
         # No prior cache
-        with patch("tools.regime_monitor.yf.download", side_effect=Exception("network error")):
+        with patch("shiftinnerv.sensors.regime_monitor.yf.download", side_effect=Exception("network error")):
             result = d.fetch_vix(use_cache=True)
 
         assert result is None
@@ -346,7 +346,7 @@ class TestLoadPricesFromCSV:
 
     def test_returns_none_for_missing_ticker(self, tmp_path):
         d = make_detector(tmp_path)
-        with patch("tools.regime_monitor.yf.download", return_value=pd.DataFrame()):
+        with patch("shiftinnerv.sensors.regime_monitor.yf.download", return_value=pd.DataFrame()):
             prices = d._load_prices("NONEXISTENT", window=20)
         assert prices is None
 
@@ -386,7 +386,7 @@ class TestComputePairSPYCorrelation:
 
     def test_returns_none_when_prices_missing(self, tmp_path):
         d = make_detector(tmp_path)
-        with patch("tools.regime_monitor.yf.download", return_value=pd.DataFrame()):
+        with patch("shiftinnerv.sensors.regime_monitor.yf.download", return_value=pd.DataFrame()):
             corr = d.compute_pair_spy_correlation("MISSING1", "MISSING2", window=20)
         assert corr is None
 

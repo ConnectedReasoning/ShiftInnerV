@@ -10,7 +10,7 @@ On each screening cycle, determines regime state and applies position sizing
 modulations. Halts new entries if VIX >= 40 (CRISIS).
 
 Usage:
-    from tools.regime_monitor import (
+    from shiftinnerv.sensors.regime_monitor import (
         RegimeDetector, RegimeState, get_position_size_multiplier
     )
 

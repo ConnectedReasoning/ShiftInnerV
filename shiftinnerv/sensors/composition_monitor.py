@@ -10,7 +10,7 @@ This is a gate override: a composition-level circuit breaker that trumps
 the numerical gates.
 
 Usage:
-    from tools.composition_monitor import (
+    from shiftinnerv.sensors.composition_monitor import (
         load_compositions, get_pair_composition,
         check_composition_concentration,
     )

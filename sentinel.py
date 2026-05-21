@@ -40,7 +40,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Item 8 imports (lazy-imported inside main() to avoid startup cost when --dry-run)
-# from tools.regime_monitor import RegimeDetector, RegimeState
+# from shiftinnerv.sensors.regime_monitor import RegimeDetector, RegimeState
 # from trial_ledger import load_open_trials
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
@@ -197,7 +197,7 @@ def run_position_revalidation(log: logging.Logger) -> None:
     Auto-closes positions that fail both the SNR and drift criteria.
     Records all results to position_revalidations table.
     """
-    from tools.position_monitor import revalidate_open_positions
+    from shiftinnerv.sensors.position_monitor import revalidate_open_positions
     from trial_ledger import record_position_revalidation
 
     print("\n── Position Revalidation ────────────────────────────────────────")
@@ -269,7 +269,7 @@ def run_regime_detection(log: logging.Logger):
     -------
     RegimeSnapshot — always returned (even CRISIS, before the exit)
     """
-    from tools.regime_monitor import RegimeDetector, RegimeState
+    from shiftinnerv.sensors.regime_monitor import RegimeDetector, RegimeState
     from trial_ledger import load_open_trials
 
     print("\n── Market Regime Detection ─────────────────────────────────────")
@@ -375,8 +375,8 @@ def main():
         print(f"  monitor.py   : {'✅' if os.path.exists(MONITOR_PY) else '❌ NOT FOUND'}")
         print(f"  main.py      : {'✅' if os.path.exists(MAIN_PY) else '❌ NOT FOUND'}")
         print(f"  promote.py   : {'✅' if os.path.exists(PROMOTE_PY) else '❌ NOT FOUND'}")
-        pos_monitor_path = os.path.join(PROJECT_DIR, "tools", "position_monitor.py")
-        regime_monitor_path = os.path.join(PROJECT_DIR, "tools", "regime_monitor.py")
+        pos_monitor_path = os.path.join(PROJECT_DIR, "shiftinner", "sensors", "position_monitor.py")
+        regime_monitor_path = os.path.join(PROJECT_DIR, "shiftinner", "sensors", "regime_monitor.py")
         print(f"  position_monitor.py : {'✅' if os.path.exists(pos_monitor_path) else '❌ NOT FOUND'}")
         print(f"  regime_monitor.py   : {'✅' if os.path.exists(regime_monitor_path) else '❌ NOT FOUND'}  (Item 8)")
         print(f"  trial_ledger : {'✅' if os.path.exists(LEDGER_DB_PATH) else '⚠️  not created yet'}")

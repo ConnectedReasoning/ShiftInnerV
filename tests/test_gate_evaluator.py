@@ -2,7 +2,7 @@
 ShiftInnerV — Gate Evaluator Tests
 Item 4 of the Council Roadmap.
 
-Tests for tools/gate_evaluator.py — the deterministic five-gate evaluator
+Tests for shiftinner/sensors/gate_evaluator.py — the deterministic five-gate evaluator
 that is the PRIMARY trading decision path.
 
 Usage:
@@ -22,7 +22,7 @@ import pytest
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.gate_evaluator import (
+from shiftinnerv.sensors.gate_evaluator import (
     DeterministicGateEvaluator,
     EvaluatorOutput,
     GateResult,

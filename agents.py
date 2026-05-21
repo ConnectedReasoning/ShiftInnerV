@@ -1,7 +1,7 @@
 import os
 from crewai import Agent
 from dotenv import load_dotenv
-from tools.correlation_tool import CorrelationDecayTool
+from shiftinnerv.sensors.correlation import CorrelationDecayTool
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
