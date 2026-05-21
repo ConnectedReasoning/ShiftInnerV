@@ -26,6 +26,10 @@ import random
 import argparse
 import itertools
 from datetime import datetime
+from pathlib import Path
+
+# Project root — two levels up from shiftinnerv/pipelines/
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 
 
 def load_universe(universe_path: str) -> dict:
@@ -91,9 +95,7 @@ def main():
     args = parser.parse_args()
 
     # ── Load universe ─────────────────────────────────────────────────────────
-    universe_path = args.universe or os.path.join(
-        os.path.dirname(__file__), "universe.yaml"
-    )
+    universe_path = args.universe or os.path.join(_PROJECT_ROOT, "universe.yaml")
     if not os.path.exists(universe_path):
         print(f"ERROR: universe.yaml not found at {universe_path}")
         sys.exit(1)
@@ -111,7 +113,7 @@ def main():
         print(f"Total possible pairs: {total_pairs:,}")
         return
 
-    compositions_dir = os.path.join(os.path.dirname(__file__), "compositions")
+    compositions_dir = os.path.join(_PROJECT_ROOT, "compositions")
 
     # ── Generate pairs ────────────────────────────────────────────────────────
     if args.random is not None:

@@ -9,10 +9,10 @@ from crewai import Crew, Process
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
-from agents import make_crew
-from tasks import build_tasks
+from shiftinnerv.pipelines.agents import make_crew
+from shiftinnerv.pipelines.tasks import build_tasks
 from shiftinnerv.services.data_manager import ensure_data, tickers_from_pairs, check_data_staleness
-from dossier import render_dossier
+from shiftinnerv.pipelines.dossier import render_dossier
 from promote import run as promote_run
 from shiftinnerv.services.trial_ledger import (
     record_active_verdict,

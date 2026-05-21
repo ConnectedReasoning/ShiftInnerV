@@ -331,6 +331,9 @@ def log_screening(result: dict):
 # working: callers may still do `from monitor import compute_snr` etc.
 # ──────────────────────────────────────────────────────────────────────────
 from shiftinnerv.domain.spread_math import (
+
+# Project root — two levels up from shiftinnerv/pipelines/
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
     compute_half_life,
     compute_snr,
     run_johansen,
@@ -691,7 +694,7 @@ def main():
 
     compositions_dir = os.path.expanduser(
         args.compositions or
-        os.path.join(os.path.dirname(__file__), "compositions")
+        os.path.join(_PROJECT_ROOT, "compositions")
     )
 
     if args.loop:

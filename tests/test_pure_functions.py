@@ -85,7 +85,7 @@ extract_report_text     = _main_funcs["extract_report_text"]
 extract_search_findings = _main_funcs["extract_search_findings"]
 
 # summarize.py has no heavy deps — import normally
-from summarize import (
+from shiftinnerv.pipelines.summarize import (
     _pair_from_filename,
     build_pairs_text,
     extract_direction,

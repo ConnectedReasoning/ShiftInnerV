@@ -55,12 +55,29 @@ ANOMALY_DIR      = os.path.join(COMPOSITIONS_DIR, "anomalies")
 LOG_PATH         = os.path.join(DATA_DIR, "sentinel.log")
 LOCK_PATH        = os.path.join(DATA_DIR, "sentinel.lock")
 
-MONITOR_PY = os.path.join(PROJECT_DIR, "monitor.py")
+MONITOR_PY = os.path.join(PROJECT_DIR, "shiftinnerv", "pipelines", "monitor.py")
 MAIN_PY    = os.path.join(PROJECT_DIR, "main.py")
 PROMOTE_PY = os.path.join(PROJECT_DIR, "promote.py")
 
 SEEN_PATH       = os.path.join(DATA_DIR, "sentinel_seen.txt")
 LEDGER_DB_PATH  = os.path.join(DATA_DIR, "trial_ledger.db")
+
+# ── Startup path verification ─────────────────────────────────────────────────
+# Fail loudly at import time if any subprocess target is missing.
+# Prevents silent failures where sentinel runs but skips monitor/summarize
+# because a file moved and the constant wasn't updated.
+_REQUIRED_PATHS = {
+    "MONITOR_PY": MONITOR_PY,
+    "MAIN_PY":    MAIN_PY,
+    "PROMOTE_PY": PROMOTE_PY,
+}
+_missing = [f"{name} → {path}" for name, path in _REQUIRED_PATHS.items()
+            if not os.path.exists(path)]
+if _missing:
+    raise FileNotFoundError(
+        "sentinel.py: subprocess target(s) not found — check path constants:\n"
+        + "\n".join(f"  {m}" for m in _missing)
+    )
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -450,7 +467,7 @@ def main():
                 )
 
                 # ── Step 4: AI summary after promoted run ─────────────────
-                summarize_py = os.path.join(PROJECT_DIR, "summarize.py")
+                summarize_py = os.path.join(PROJECT_DIR, "shiftinnerv", "pipelines", "summarize.py")
                 if os.path.exists(summarize_py):
                     log.info("Generating AI run summary...")
                     run_subprocess(

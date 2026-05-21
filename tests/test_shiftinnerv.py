@@ -396,21 +396,12 @@ class TestMonitorScoring:
 
     @pytest.fixture(autouse=True)
     def import_monitor_functions(self):
-        """Import compute_score and score_label from monitor.py."""
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "monitor",
-            PROJECT_ROOT / "monitor.py",
-        )
-        if spec is None:
-            pytest.skip("monitor.py not found — skipping monitor scoring tests")
-        mod = importlib.util.load_from_spec = spec
-        # Use exec-based import to avoid side effects from argparse/dotenv
-        src = (PROJECT_ROOT / "monitor.py").read_text()
-        ns = {}
-        exec(compile(src, "monitor.py", "exec"), ns)
-        self.compute_score = ns["compute_score"]
-        self.score_label = ns["score_label"]
+        """Import compute_score and score_label from their canonical home."""
+        # Extracted to domain/spread_math.py in step 2 of the reorganization.
+        # Direct import — no exec needed, domain modules have no side effects.
+        from shiftinnerv.domain.spread_math import compute_score, score_label
+        self.compute_score = compute_score
+        self.score_label = score_label
 
     def test_prime_pair_scores_above_75(self):
         s = self.compute_score(
