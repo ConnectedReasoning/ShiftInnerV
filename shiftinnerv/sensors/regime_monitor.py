@@ -11,7 +11,7 @@ modulations. Halts new entries if VIX >= 40 (CRISIS).
 
 Usage:
     from shiftinnerv.sensors.regime_monitor import (
-        RegimeDetector, RegimeState, get_position_size_multiplier
+        RegimeDetector, RegimeSnapshot, RegimeState, get_position_size_multiplier
     )
 
     detector = RegimeDetector(data_dir=data_dir, logger=logger)
@@ -29,35 +29,30 @@ Usage:
 """
 
 import os
-from enum import Enum
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
+# ── Pure types and classification (canonical home: domain/regime_math.py) ─────
+from shiftinnerv.domain.regime_math import (
+    RegimeState,
+    RegimeSnapshot,
+    classify_regime,
+    get_position_size_multiplier,
+    SPY_CORR_THRESHOLD,
+    VIX_DEFAULT_UNAVAILABLE,
+)
 
-class RegimeState(str, Enum):
-    """Market regime classification."""
-    NORMAL     = "NORMAL"
-    ELEVATED   = "ELEVATED"
-    HIGH_STRESS = "HIGH_STRESS"
-    CRISIS     = "CRISIS"
-
-
-@dataclass
-class RegimeSnapshot:
-    """Current market regime state."""
-    state:                    RegimeState
-    timestamp:                datetime
-    vix_level:                float
-    correlation_regime:       bool
-    correlated_pairs:         list          # [(ticker1, ticker2, corr), ...]
-    position_size_multiplier: float         # 1.0, 0.5, 0.25, or 0.0
-    rationale:                str
-    vix_unavailable:          bool = False  # True if VIX fetch failed and default was used
+# Re-exported for callers that import these names from this module
+__all__ = [
+    "RegimeState",
+    "RegimeSnapshot",
+    "RegimeDetector",
+    "get_position_size_multiplier",
+]
 
 
 class RegimeDetector:
@@ -66,21 +61,19 @@ class RegimeDetector:
 
     Runs before each screening cycle to determine if conditions have changed.
     VIX is cached for 1 hour to avoid repeated network calls within a single run.
+
+    Pure classification logic lives in shiftinnerv.domain.regime_math.classify_regime.
+    This class handles data acquisition: VIX fetching, CSV loading, caching.
     """
 
-    # VIX thresholds
-    VIX_ELEVATED   = 20.0
+    # VIX thresholds (kept here for reference; canonical in domain/regime_math.py)
+    VIX_ELEVATED    = 20.0
     VIX_HIGH_STRESS = 30.0
-    VIX_CRISIS     = 40.0
+    VIX_CRISIS      = 40.0
 
-    # SPY correlation threshold — above this a pair is considered SYSTEMATIC
-    SPY_CORR_THRESHOLD = 0.7
-
-    # Fraction of open positions that must be SYSTEMATIC to trigger CORRELATION_REGIME
+    SPY_CORR_THRESHOLD          = SPY_CORR_THRESHOLD
     CORRELATION_REGIME_FRACTION = 0.5
-
-    # VIX default when data is unavailable — conservative: assume ELEVATED
-    VIX_DEFAULT_UNAVAILABLE = 20.0
+    VIX_DEFAULT_UNAVAILABLE     = VIX_DEFAULT_UNAVAILABLE
 
     def __init__(self, data_dir: str, logger: logging.Logger = None):
         self.data_dir  = data_dir
@@ -119,21 +112,18 @@ class RegimeDetector:
         try:
             vix_data = yf.download(
                 "^VIX",
-                period="2d",      # 2d to ensure we always get at least one row
+                period="2d",
                 progress=False,
                 auto_adjust=True,
             )
             if vix_data.empty:
                 if self.logger:
                     self.logger.warning("[regime] VIX download returned empty DataFrame.")
-                return self._last_vix  # return cached if available, else None
+                return self._last_vix
 
-            # yfinance >=0.2.x may return multi-level columns ("Close", "^VIX").
-            # Flatten to a plain Series/scalar before extracting the float.
             close_col = vix_data["Close"]
             if hasattr(close_col, "squeeze"):
-                close_col = close_col.squeeze()   # DataFrame -> Series or scalar
-            # squeeze() on a single-row single-col block returns a scalar directly
+                close_col = close_col.squeeze()
             vix_close = float(close_col.iloc[-1] if hasattr(close_col, "iloc") else close_col)
             self._last_vix       = vix_close
             self._last_vix_fetch = datetime.now()
@@ -142,7 +132,7 @@ class RegimeDetector:
         except Exception as exc:
             if self.logger:
                 self.logger.warning(f"[regime] VIX fetch failed: {exc}")
-            return self._last_vix  # cached or None
+            return self._last_vix
 
     # ── Pair-SPY correlation ──────────────────────────────────────────────────
 
@@ -157,16 +147,6 @@ class RegimeDetector:
 
         Uses price CSVs from data_dir (same format as the rest of the pipeline).
         Falls back to yfinance download when CSVs are missing.
-
-        Parameters
-        ----------
-        ticker1, ticker2 : str
-        window : int
-            Look-back in trading days (default 20).
-
-        Returns
-        -------
-        float | None
         """
         try:
             p1  = self._load_prices(ticker1, window=window + 5)
@@ -204,9 +184,8 @@ class RegimeDetector:
         """
         Load closing prices for *ticker*.
 
-        Tries the pipeline CSV first (data_dir/{ticker}_daily.csv or
-        data_dir/{ticker.lower()}_daily.csv), then falls back to a live
-        yfinance download for SPY and any ticker that isn't in the local store.
+        Tries the pipeline CSV first, then falls back to a live yfinance
+        download for SPY and any ticker not in the local store.
         """
         for name in (ticker, ticker.lower(), ticker.upper()):
             csv_path = os.path.join(self.data_dir, f"{name}_daily.csv")
@@ -220,7 +199,6 @@ class RegimeDetector:
                 except Exception:
                     pass
 
-        # Fallback: live yfinance fetch (network call — only for missing CSVs)
         try:
             raw = yf.download(ticker, period="3mo", progress=False, auto_adjust=True)
             if not raw.empty and "Close" in raw.columns:
@@ -243,9 +221,7 @@ class RegimeDetector:
         Parameters
         ----------
         open_positions : list of (ticker1, ticker2) tuples
-            Open position pairs to check for SPY correlation.
         logger : logging.Logger
-            Optional override logger (falls back to self.logger).
 
         Returns
         -------
@@ -279,53 +255,23 @@ class RegimeDetector:
                         )
 
         n_open = len(open_positions) if open_positions else 0
-        correlation_regime = (
-            n_open > 0
-            and len(correlated_pairs) > n_open * self.CORRELATION_REGIME_FRACTION
+
+        # ── 3. Classify regime (pure logic in domain/regime_math.py) ─────────
+        state, multiplier, rationale = classify_regime(
+            vix=vix,
+            correlated_pairs=correlated_pairs,
+            n_open_positions=n_open,
+            vix_unavailable=vix_unavailable,
         )
-
-        # ── 3. Regime state & base multiplier ────────────────────────────────
-        if vix >= self.VIX_CRISIS:
-            state      = RegimeState.CRISIS
-            multiplier = 0.0
-            rationale  = f"CRISIS: VIX {vix:.1f} ≥ {self.VIX_CRISIS:.0f}. All new entries halted."
-        elif vix >= self.VIX_HIGH_STRESS:
-            state      = RegimeState.HIGH_STRESS
-            multiplier = 0.25
-            rationale  = (
-                f"HIGH_STRESS: VIX {vix:.1f} in [{self.VIX_HIGH_STRESS:.0f}, "
-                f"{self.VIX_CRISIS:.0f}). Only SNR ≥ 2.0 pairs accepted. "
-                f"Position size 0.25x."
-            )
-        elif vix >= self.VIX_ELEVATED:
-            state      = RegimeState.ELEVATED
-            multiplier = 0.5
-            rationale  = (
-                f"ELEVATED: VIX {vix:.1f} in [{self.VIX_ELEVATED:.0f}, "
-                f"{self.VIX_HIGH_STRESS:.0f}). Position size 0.5x."
-            )
-        else:
-            state      = RegimeState.NORMAL
-            multiplier = 1.0
-            rationale  = f"NORMAL: VIX {vix:.1f} < {self.VIX_ELEVATED:.0f}. Position size 1.0x."
-
-        # ── 4. Correlation regime stacks on top ───────────────────────────────
-        if correlation_regime and state != RegimeState.CRISIS:
-            multiplier *= 0.5
-            rationale += (
-                f" CORRELATION_REGIME: {len(correlated_pairs)}/{n_open} pair(s) "
-                f"have |SPY corr| > {self.SPY_CORR_THRESHOLD}. "
-                f"Additional 0.5x reduction → final {multiplier:.4g}x."
-            )
-
-        if vix_unavailable:
-            rationale = f"[VIX UNAVAILABLE — used default {self.VIX_DEFAULT_UNAVAILABLE}] " + rationale
 
         snapshot = RegimeSnapshot(
             state=state,
             timestamp=datetime.now(),
             vix_level=vix,
-            correlation_regime=correlation_regime,
+            correlation_regime=(
+                n_open > 0
+                and len(correlated_pairs) > n_open * self.CORRELATION_REGIME_FRACTION
+            ),
             correlated_pairs=correlated_pairs,
             position_size_multiplier=multiplier,
             rationale=rationale,
@@ -340,8 +286,3 @@ class RegimeDetector:
             )
 
         return snapshot
-
-
-def get_position_size_multiplier(regime: RegimeSnapshot) -> float:
-    """Helper to extract position size multiplier from a RegimeSnapshot."""
-    return regime.position_size_multiplier
