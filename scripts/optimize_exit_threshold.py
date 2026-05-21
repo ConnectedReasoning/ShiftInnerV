@@ -123,7 +123,7 @@ def fetch_price_history(
 def load_ledger(db_path: str, verbose: bool = False) -> pd.DataFrame | None:
     """
     Load closed trades from the trial_ledger, mapped to the real schema
-    produced by trial_ledger.py (Item 14).
+    produced by shiftinnerv/services/trial_ledger.py (Item 14).
 
     Columns returned:
         id, ticker1, ticker2, entry_timestamp, exit_timestamp,
@@ -134,7 +134,7 @@ def load_ledger(db_path: str, verbose: bool = False) -> pd.DataFrame | None:
     if not os.path.exists(db_path):
         print(f"ERROR: Trial ledger not found at {db_path}")
         print(f"       Expected path: {db_path}")
-        print(f"       Run trial_ledger.py (Item 14) and accumulate trades first.")
+        print(f"       Run shiftinnerv/services/trial_ledger.py (Item 14) and accumulate trades first.")
         return None
 
     try:

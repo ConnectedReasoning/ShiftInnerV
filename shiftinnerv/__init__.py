@@ -1,22 +1,29 @@
 """
 ShiftInnerV — Quantitative pairs trading platform.
 
-Package layout (in progress, per Council Roadmap reorganization):
+Package layout:
 
     shiftinnerv/
         domain/     — Pure logic and data shapes. No I/O.
-                      Modules: gate_evaluator, cost_model, spread_math.
-        sensors/    — Evaluators that touch the outside world (DB, network, files).
-                      Modules: correlation, position_monitor, regime_monitor,
-                               composition_monitor.
+                      gate_evaluator, cost_model, spread_math,
+                      position_math, regime_math.
 
-    (Future, per step 3+):
-        services/   — I/O-facing: data_manager, ledger.
+        sensors/    — Evaluators that read data to produce verdicts.
+                      correlation, position_monitor, regime_monitor,
+                      composition_monitor.
+
+        services/   — I/O boundary: data loading and persistence.
+                      data_manager (CSV/yfinance), trial_ledger (SQLite).
+
+    (Future, step 5):
         pipelines/  — Multi-step workflows: monitor, dossier, summarize.
-        utils/      — Stateless helpers.
 
-Dependency rule: domain knows nothing about sensors or anything above.
-Sensors can import from domain. Pipelines can import from both.
-If you ever feel the urge to import something from a higher layer into
-a lower one, you have a smell.
+Entry points (root-level):
+    main.py, sentinel.py, run_all.py, promote.py
+
+Dependency rule (innermost to outermost):
+    domain ← sensors ← services ← pipelines ← entry points
+
+A module at any layer may import from layers to its left.
+A module must never import from a layer to its right.
 """

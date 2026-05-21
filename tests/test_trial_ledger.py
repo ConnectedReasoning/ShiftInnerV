@@ -2,16 +2,16 @@
 ShiftInnerV — Trial Ledger Tests
 Item 14 of the Council Roadmap.
 
-Tests for trial_ledger.py — schema initialisation, verdict recording,
+Tests for shiftinnerv/services/trial_ledger.py — schema initialisation, verdict recording,
 position closing with P&L computation, bulk close, query helpers,
 position revalidation history, and ledger summary.
 
 No network calls, no LLM required. Uses in-memory / tmp SQLite.
 
 Usage:
-    pytest tests/test_trial_ledger.py -v
-    pytest tests/test_trial_ledger.py -v -k "close"
-    pytest tests/test_trial_ledger.py -v --tb=short
+    pytest tests/test_shiftinnerv/services/trial_ledger.py -v
+    pytest tests/test_shiftinnerv/services/trial_ledger.py -v -k "close"
+    pytest tests/test_shiftinnerv/services/trial_ledger.py -v --tb=short
 """
 
 import os
@@ -24,7 +24,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from trial_ledger import (
+from shiftinnerv.services.trial_ledger import (
     close_trial,
     close_trials_from_audit,
     get_ledger_summary,

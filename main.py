@@ -11,10 +11,10 @@ load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
 from agents import make_crew
 from tasks import build_tasks
-from data_manager import ensure_data, tickers_from_pairs, check_data_staleness
+from shiftinnerv.services.data_manager import ensure_data, tickers_from_pairs, check_data_staleness
 from dossier import render_dossier
 from promote import run as promote_run
-from trial_ledger import (
+from shiftinnerv.services.trial_ledger import (
     record_active_verdict,
     parse_gate_results,
     parse_statistical_snapshot,

@@ -32,7 +32,7 @@ from shiftinnerv.sensors.position_monitor import (
     load_price_series,
     revalidate_open_positions,
 )
-from trial_ledger import init_trial_ledger, record_active_verdict
+from shiftinnerv.services.trial_ledger import init_trial_ledger, record_active_verdict
 
 
 # ══════════════════════════════════════════════════════════════════════════════

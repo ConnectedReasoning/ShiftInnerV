@@ -28,7 +28,7 @@ import pandas as pd
 from datetime import datetime, date
 from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from data_manager import ensure_data
+from shiftinnerv.services.data_manager import ensure_data
 from scipy import stats as _scipy_stats
 from shiftinnerv.domain.cost_model import (
     compute_round_trip_costs,

@@ -707,7 +707,7 @@ def main() -> None:
     if os.path.exists(ledger_db) and valid:
         sys.path.insert(0, str(PROJECT_ROOT))
         try:
-            from trial_ledger import close_trial
+            from shiftinnerv.services.trial_ledger import close_trial
             closed_ok = closed_fail = 0
             for t in valid:
                 # Audit doesn't carry verdict_id; match by ticker pair + entry date

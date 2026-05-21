@@ -31,7 +31,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from dotenv import load_dotenv
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
-from trial_ledger import load_closed_trials, get_ledger_summary
+from shiftinnerv.services.trial_ledger import load_closed_trials, get_ledger_summary
 
 # ── Config ────────────────────────────────────────────────────────────────────
 

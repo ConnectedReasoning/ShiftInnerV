@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from data_manager import check_data_staleness, get_stalest_ticker
+from shiftinnerv.services.data_manager import check_data_staleness, get_stalest_ticker
 
 
 @pytest.fixture
