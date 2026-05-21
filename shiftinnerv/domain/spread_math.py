@@ -6,8 +6,9 @@ Every function in this module is a pure function: same inputs always
 yield the same outputs, no I/O, no global state, no environment dependencies.
 
 Functions:
+    compute_spread_stats   — Single OLS fit returning beta, spread_std, and SNR (use this).
     compute_half_life      — Half-life of mean reversion from spread series.
-    compute_snr            — Signal-to-noise ratio of a spread (Item 1).
+    compute_snr            — Signal-to-noise ratio (delegates to compute_spread_stats).
     run_johansen           — Johansen cointegration trace test.
     johansen_approx_pvalue — Approximate p-value for Johansen trace statistic.
     apply_bh_correction    — Benjamini-Hochberg multiple-testing correction.
@@ -38,18 +39,64 @@ def compute_half_life(spread: pd.Series):
         return None
 
 
-def compute_snr(log_p1: pd.Series, log_p2: pd.Series) -> float:
+def compute_spread_stats(log_p1: pd.Series, log_p2: pd.Series) -> dict:
+    """
+    Run one OLS fit and return beta, spread_std, and SNR together.
+
+    This is the canonical entry point for spread analysis. All three
+    quantities come from the same regression so they are internally
+    consistent — beta is used to build the spread, spread_std is the
+    std of that same spread, and SNR is computed from it.
+
+    SNR definition (Vidyamurthy):
+        signal = variance of the spread *level*  (what the 2σ trade targets)
+        noise  = variance of the spread *daily changes*  (execution noise)
+        SNR    = var(level) / var(daily_diff)
+
+    Higher SNR means the spread level moves slowly relative to daily noise —
+    a cleaner, more tradeable mean reversion. Typical range: 5–50 for good
+    pairs. SNR < 2 means day-to-day noise dominates the signal.
+
+    Returns
+    -------
+    dict with keys:
+        beta        — OLS hedge ratio (log_p1 = alpha + beta * log_p2 + resid)
+        spread_std  — std of OLS residuals (spread level volatility, log units)
+        snr         — signal-to-noise ratio as defined above
+    Returns None values on failure.
+    """
     try:
-        from statsmodels.tools import add_constant
-        from statsmodels.regression.linear_model import OLS
-        fit = OLS(log_p1, add_constant(log_p2)).fit()
-        resid = pd.Series(fit.resid, index=log_p1.index)
-        trend = log_p1 - resid
-        var_s = float(np.var(resid, ddof=1))
-        var_n = float(np.var(trend, ddof=1))
-        return var_s / var_n if var_n > 1e-10 else float("inf")
+        fit        = OLS(log_p1, add_constant(log_p2)).fit()
+        beta       = float(fit.params.iloc[1])
+        resid      = pd.Series(fit.resid, index=log_p1.index)
+        spread_std = float(resid.std(ddof=1))
+
+        # SNR = level variance / innovation variance
+        var_level  = float(np.var(resid, ddof=1))
+        daily_diff = resid.diff().dropna()
+        var_noise  = float(np.var(daily_diff, ddof=1))
+
+        if var_noise < 1e-12:
+            snr = float("inf")
+        else:
+            snr = var_level / var_noise
+
+        return {"beta": beta, "spread_std": spread_std, "snr": snr}
     except Exception:
-        return None
+        return {"beta": 1.0, "spread_std": None, "snr": None}
+
+
+def compute_snr(log_p1: pd.Series, log_p2: pd.Series) -> float:
+    """
+    Signal-to-noise ratio of the OLS spread.
+
+    SNR = var(spread level) / var(spread daily changes).
+    Higher is better — means mean reversion is large relative to daily noise.
+    Typical range: 5–50 for genuinely tradeable pairs.
+
+    Delegates to compute_spread_stats for consistency.
+    """
+    return compute_spread_stats(log_p1, log_p2)["snr"]
 
 
 def run_johansen(log_prices: pd.DataFrame):
@@ -207,12 +254,16 @@ def compute_score(trace_stat: float, crit_90: float, crit_95: float,
     else:
         hl_score = 0.0
 
-    # SNR component — log-scaled so extreme values don't dominate
+    # SNR component — log-scaled so extreme values don't dominate.
+    # Under the new definition (level/noise), SNR=10 is good, SNR=50 is excellent.
+    # SNR < 2 means daily noise exceeds the mean-reversion signal — too noisy.
     import math
     if snr is None or snr <= 0:
         snr_score = 0.0
     elif snr == float("inf") or snr > 1000:
-        snr_score = 5.0  # extreme SNR is suspicious — cap and flag
+        # SNR > 1000: spread barely moves day-to-day — possible stale data.
+        # Cap to prevent spurious high scores.
+        snr_score = 5.0
     else:
         snr_score = min(20.0, math.log1p(snr) / math.log1p(10.0) * 20.0)
 

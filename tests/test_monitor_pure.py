@@ -66,7 +66,7 @@ def default_score_kwargs(**overrides) -> dict:
         crit_90=13.4,
         crit_95=15.5,
         half_life=25.0,
-        snr=1.8,
+        snr=8.0,
         episodes=3,
         trace_trend=0.0,
         net_pnl_bps=None,
@@ -143,22 +143,31 @@ class TestComputeSNR:
         snr = compute_snr(pd.Series([], dtype=float), pd.Series([], dtype=float))
         assert snr is None
 
-    def test_higher_snr_for_faster_reversion(self):
-        p1_fast, p2_fast = make_log_prices(n=300, half_life=10.0, seed=7)
-        p1_slow, p2_slow = make_log_prices(n=300, half_life=80.0, seed=7)
+    def test_snr_increases_with_spread_persistence(self):
+        # Under the Vidyamurthy SNR definition (level variance / noise variance),
+        # a MORE persistent (slower) spread has higher level variance (OU theory:
+        # var_level = sigma^2 / (1 - phi^2), larger for phi closer to 1).
+        # So SNR increases with half-life, all else equal.
+        # This is correct: a slowly-reverting spread is large relative to daily noise —
+        # the signal is stronger, just takes longer to harvest.
+        p1_fast, p2_fast = make_log_prices(n=500, half_life=5.0,   seed=42)
+        p1_slow, p2_slow = make_log_prices(n=500, half_life=120.0,  seed=42)
         snr_fast = compute_snr(p1_fast, p2_fast)
         snr_slow = compute_snr(p1_slow, p2_slow)
         assert snr_fast is not None and snr_slow is not None
-        assert snr_fast > snr_slow
+        # Slower reversion → larger level variance → higher SNR
+        assert snr_slow > snr_fast
 
-    def test_near_flat_trend_returns_inf_or_large(self):
-        """When trend variance ≈ 0, SNR should be inf or very large."""
+    def test_pure_noise_gives_low_snr(self):
+        """Pure noise (no mean reversion) should have low SNR."""
+        # For white noise: var(level) ≈ 0.5 * var(daily diff), so SNR ≈ 0.5.
+        # Under the corrected definition, pure noise should score near 0, not inf.
         rng = np.random.default_rng(0)
-        p1 = pd.Series(rng.standard_normal(200))  # pure noise
-        p2 = pd.Series(rng.standard_normal(200))
+        p1 = pd.Series(rng.standard_normal(300))
+        p2 = pd.Series(rng.standard_normal(300))
         snr = compute_snr(p1, p2)
-        # Either inf or None — both are acceptable defensive responses
-        assert snr is None or snr == float("inf") or snr > 100
+        assert snr is not None
+        assert snr < 5.0, f"Pure noise should have low SNR, got {snr:.2f}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

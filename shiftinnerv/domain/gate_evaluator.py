@@ -153,22 +153,29 @@ class DeterministicGateEvaluator:
         )
 
     def _eval_gate_3(self, snr: Optional[float]) -> GateResult:
-        """Gate 3: SNR must be >= 1.0."""
+        """
+        Gate 3: SNR must be >= 2.0.
+
+        SNR = var(spread level) / var(spread daily changes).
+        Higher means cleaner mean reversion relative to daily noise.
+        Threshold raised from 1.0 to 2.0 to match the new definition —
+        under the corrected formula, SNR < 2 means daily noise dominates.
+        """
         if snr is None or (isinstance(snr, float) and math.isnan(snr)):
             return GateResult(
                 status="FAIL",
                 reason="SNR is None or NaN.",
                 value=None,
             )
-        if snr < 1.0:
+        if snr < 2.0:
             return GateResult(
                 status="FAIL",
-                reason=f"SNR {snr:.3f} < 1.0. Nonstationary drift dominates signal.",
+                reason=f"SNR {snr:.2f} < 2.0. Daily noise dominates the mean-reversion signal.",
                 value=snr,
             )
         return GateResult(
             status="PASS",
-            reason=f"SNR {snr:.3f} >= 1.0. Signal is stationary.",
+            reason=f"SNR {snr:.2f} >= 2.0. Mean-reversion signal exceeds daily noise.",
             value=snr,
         )
 

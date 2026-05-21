@@ -41,7 +41,7 @@ def all_pass_kwargs(**overrides) -> dict:
         crit_val_95=15.0,
         crit_val_90=10.0,
         half_life=25.0,
-        snr=1.5,
+        snr=8.0,
         episodes=3,
         factor_loading=None,
         net_pnl_bps=None,
@@ -131,16 +131,16 @@ class TestGate2:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestGate3:
-    def test_pass_above_1(self):
-        r = evaluate_gates(**all_pass_kwargs(snr=1.5))
+    def test_pass_above_2(self):
+        r = evaluate_gates(**all_pass_kwargs(snr=3.0))
         assert r.gates["gate_3"].status == "PASS"
 
-    def test_pass_exactly_1(self):
-        r = evaluate_gates(**all_pass_kwargs(snr=1.0))
+    def test_pass_exactly_2(self):
+        r = evaluate_gates(**all_pass_kwargs(snr=2.0))
         assert r.gates["gate_3"].status == "PASS"
 
-    def test_fail_below_1(self):
-        r = evaluate_gates(**all_pass_kwargs(snr=0.99))
+    def test_fail_below_2(self):
+        r = evaluate_gates(**all_pass_kwargs(snr=1.99))
         assert r.gates["gate_3"].status == "FAIL"
         assert r.verdict == "REJECT"
 
@@ -336,7 +336,7 @@ class TestRealWorldRegressions:
             crit_val_95=15.0,
             crit_val_90=10.0,
             half_life=22.0,
-            snr=1.8,
+            snr=8.0,
             episodes=5,
             factor_loading=0.12,
             net_pnl_bps=187,
@@ -352,7 +352,7 @@ class TestRealWorldRegressions:
             crit_val_95=15.0,
             crit_val_90=10.0,
             half_life=180.0,
-            snr=1.5,
+            snr=8.0,
             episodes=3,
         )
         assert r.gates["gate_2"].status == "FAIL"
@@ -370,7 +370,7 @@ class TestModuleLevelFunction:
             crit_val_95=15.0,
             crit_val_90=10.0,
             half_life=25.0,
-            snr=1.5,
+            snr=8.0,
             episodes=3,
         )
         assert isinstance(r, EvaluatorOutput)

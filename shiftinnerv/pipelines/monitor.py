@@ -134,12 +134,20 @@ def analyze_pair(ticker1: str, ticker2: str, label: str = "",
     log_p2 = np.log(c2)
     log_prices = pd.DataFrame({ticker1: log_p1, ticker2: log_p2}).dropna()
 
-    spread = log_p1 - log_p2
+    # ── Single OLS fit — beta, spread_std, and SNR all from one regression ──
+    # Finding 2 fix: use OLS beta for the spread (not 1:1) so half-life,
+    # episode detection, and gross P&L all operate on the same stationary series.
+    # Finding 3 fix: SNR is now level/noise (Vidyamurthy), not level/trend.
+    ss         = compute_spread_stats(log_p1, log_p2)
+    beta_hat   = ss["beta"]
+    spread_std = ss["spread_std"]   # std of OLS residuals, log-price units
+    snr        = ss["snr"]
+
+    spread = log_p1 - beta_hat * log_p2   # OLS-consistent spread
     hl = compute_half_life(spread)
     window = int(np.clip(round(hl), 10, 120)) if hl else 30
 
     coint_90, coint_95, trace_stat, crit_90, crit_95 = run_johansen(log_prices)
-    snr = compute_snr(log_p1, log_p2)
 
     corr      = c1.rolling(window).corr(c2)
     mean_corr = corr.mean()
@@ -200,20 +208,22 @@ def analyze_pair(ticker1: str, ticker2: str, label: str = "",
         ticker2=ticker2,
     )
 
-    # Gross P&L estimate (entry=2.0σ, exit=0.0σ)
-    # Use SNR to estimate spread volatility
-    if snr and snr > 0:
-        # SNR = var(stationary) / var(nonstationary)
-        # Approximate spread_std from overall price volatility
-        if ticker1 in log_prices.columns and len(log_prices) > 20:
-            price_returns = log_prices[ticker1].diff().dropna()
-            spread_std_estimate = price_returns.std() * (1 + 1 / snr) ** 0.5
-        else:
-            spread_std_estimate = 0.04  # default
-        _gross_pnl_screen = (2.0 - 0.0) * spread_std_estimate * 10000 / \
-                            (_notional_1_screen + _notional_2_screen)
+    # ── Gross P&L estimate (Finding 1 fix) ──────────────────────────────────
+    # Trade: enter at +2σ of the OLS spread, exit at 0σ.
+    # Captured spread (log units) = (ENTRY_Z - EXIT_Z) * spread_std
+    # Return on capital = captured spread / (1 + N2/N1)
+    # For dollar-balanced legs (N1 = N2), denominator = 2.
+    # Multiply by 10000 to convert log-return to basis points.
+    #
+    # Old code error: used price_returns.std() (daily changes, ~0.01)
+    # instead of spread_std (~0.03), then divided by total notional in
+    # dollars (20000), producing ~0.08 bps instead of ~300 bps — off by ~3600x.
+    ENTRY_Z, EXIT_Z = 2.0, 0.0
+    if spread_std and spread_std > 0:
+        denom = 1.0 + (_notional_2_screen / _notional_1_screen)  # = 2.0 for 1:1
+        _gross_pnl_screen = (ENTRY_Z - EXIT_Z) * spread_std * 10000.0 / denom
     else:
-        _gross_pnl_screen = 100.0  # default if SNR unknown
+        _gross_pnl_screen = 100.0  # fallback if spread_std unavailable
 
     net_pnl_screen = compute_net_pnl(_gross_pnl_screen,
                                      costs_screen["total_cost_bps"])
@@ -332,6 +342,7 @@ def log_screening(result: dict):
 # working: callers may still do `from monitor import compute_snr` etc.
 # ──────────────────────────────────────────────────────────────────────────
 from shiftinnerv.domain.spread_math import (
+    compute_spread_stats,
     compute_half_life,
     compute_snr,
     run_johansen,
