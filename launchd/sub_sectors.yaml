@@ -1,0 +1,82 @@
+# ShiftInnerV — Composition: Sub-Sector ETFs
+#
+# Granular sector pairs below the SPDR XL* level.
+# These ETFs track the same underlying themes with different provider
+# methodologies or index construction — ideal for pairs trading because
+# the economic relationship is tight but pricing can diverge.
+
+composition: sub_sectors
+
+pairs:
+
+  # ── Homebuilders ──────────────────────────────────────────────────────────
+  - ticker_a: XHB
+    ticker_b: ITB
+    label: "SPDR Homebuilders vs iShares Homebuilders"
+    notes: "Same theme, different index. XHB includes suppliers/retailers;
+            ITB is purer homebuilders. One of the cleanest sub-sector pairs."
+
+  # ── Cybersecurity ─────────────────────────────────────────────────────────
+  - ticker_a: HACK
+    ticker_b: CIBR
+    label: "Amplify Cybersecurity vs First Trust Cybersecurity"
+    notes: "Same theme, different provider weighting. HACK is equal-weight,
+            CIBR is modified market-cap. Diverges on large-cap vs mid-cap moves."
+
+  - ticker_a: CIBR
+    ticker_b: XLK
+    label: "Cybersecurity vs Broad Tech"
+    notes: "Cybersecurity as a sub-theme vs broad tech sector anchor."
+
+  - ticker_a: HACK
+    ticker_b: XLK
+    label: "Amplify Cybersecurity vs Broad Tech"
+    notes: "Cybersecurity premium/discount to broad tech."
+
+  # ── Insurance ─────────────────────────────────────────────────────────────
+  - ticker_a: KIE
+    ticker_b: KBE
+    label: "Insurance vs Banks"
+    notes: "Both financials sub-sectors but different rate sensitivity.
+            Insurance benefits from higher rates differently than banks."
+
+  - ticker_a: KIE
+    ticker_b: XLF
+    label: "Insurance vs Broad Financials"
+    notes: "Insurance sub-sector vs full financials anchor."
+
+  # ── Fintech ───────────────────────────────────────────────────────────────
+  - ticker_a: FINX
+    ticker_b: KBE
+    label: "Fintech vs Traditional Banks"
+    notes: "Disruption pair — fintech displaces traditional banking.
+            Regulatory news and rate cycles drive divergence."
+
+  - ticker_a: FINX
+    ticker_b: XLF
+    label: "Fintech vs Broad Financials"
+    notes: "Fintech premium to broad financials sector."
+
+  # ── Agriculture inputs ────────────────────────────────────────────────────
+  - ticker_a: MOO
+    ticker_b: SOIL
+    label: "Agribusiness vs Fertilizers"
+    notes: "MOO is broad agribusiness (equipment, inputs, processing);
+            SOIL is concentrated in fertilizer names. Input cost relationship."
+
+  - ticker_a: MOO
+    ticker_b: DBA
+    label: "Agribusiness vs Agricultural Commodities"
+    notes: "Producer equities vs commodity prices — classic basis pair."
+
+  # ── Cross-sector sub-pairs ────────────────────────────────────────────────
+  - ticker_a: XHB
+    ticker_b: XLRE
+    label: "Homebuilders vs Broad Real Estate"
+    notes: "Homebuilders are construction/development; XLRE includes REITs.
+            Both rate-sensitive but differently — XHB leads XLRE in cycles."
+
+  - ticker_a: FINX
+    ticker_b: IAI
+    label: "Fintech vs Broker-Dealers"
+    notes: "Both capital markets adjacent but different business models."

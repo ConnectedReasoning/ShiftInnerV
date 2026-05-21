@@ -1,0 +1,89 @@
+# ShiftInnerV — Composition: Factor ETFs
+#
+# Style and factor exposures grounded in APT (Arbitrage Pricing Theory).
+# These pairs share common risk factor loadings by construction — exactly
+# the theoretical basis Vidyamurthy uses to justify pairs trading.
+#
+# Strongest institutional pairs:
+#   VTV / VUG  — Vanguard Value vs Growth (same index family, same AUM scale)
+#   IWD / IWF  — Russell 1000 Value vs Growth (direct style split)
+#   MTUM / USMV — Momentum vs Min-Volatility (risk-factor opposites)
+#   QUAL / VLUE — Quality vs Value (factor rotation pair)
+
+composition: factors
+
+pairs:
+
+  # ── Value vs Growth (core institutional pair) ─────────────────────────────
+  - ticker_a: VTV
+    ticker_b: VUG
+    label: "Vanguard Value vs Growth"
+    notes: "Same provider, same index family. One of the most traded factor pairs."
+
+  - ticker_a: IWD
+    ticker_b: IWF
+    label: "Russell 1000 Value vs Growth"
+    notes: "iShares Russell style split. Highly liquid, long history."
+
+  - ticker_a: VLUE
+    ticker_b: VUG
+    label: "MSCI Value vs Vanguard Growth"
+    notes: "Cross-provider value/growth spread."
+
+  # ── Momentum vs Defensive ─────────────────────────────────────────────────
+  - ticker_a: MTUM
+    ticker_b: USMV
+    label: "Momentum vs Min Volatility"
+    notes: "Risk-factor opposites — momentum outperforms in trending markets,
+            min-vol outperforms in risk-off. Strong regime-driven mean reversion."
+
+  - ticker_a: MTUM
+    ticker_b: QUAL
+    label: "Momentum vs Quality"
+    notes: "Quality tends to be defensive; momentum is procyclical."
+
+  # ── Quality vs Value ──────────────────────────────────────────────────────
+  - ticker_a: QUAL
+    ticker_b: VLUE
+    label: "Quality vs Value"
+    notes: "Classic factor rotation pair. Diverges during earnings seasons."
+
+  - ticker_a: QUAL
+    ticker_b: VTV
+    label: "Quality vs Vanguard Value"
+    notes: "Broader value anchor against quality screen."
+
+  # ── Size factor ───────────────────────────────────────────────────────────
+  - ticker_a: IWB
+    ticker_b: IWM
+    label: "Russell 1000 vs Russell 2000"
+    notes: "Large cap vs small cap spread. Classic size factor pair.
+            Note: IWM already in broad_market — cross-composition pair."
+
+  - ticker_a: SIZE
+    ticker_b: USMV
+    label: "Size Factor vs Min Volatility"
+    notes: "Small/mid tilt vs defensive quality."
+
+  # ── Multifactor anchors ───────────────────────────────────────────────────
+  - ticker_a: LRGF
+    ticker_b: VTV
+    label: "Multifactor Large Cap vs Pure Value"
+    notes: "LRGF blends value/quality/momentum/size — useful as a blended anchor."
+
+  - ticker_a: VFMF
+    ticker_b: LRGF
+    label: "Vanguard Multifactor vs iShares Multifactor"
+    notes: "Same factor basket, different provider weighting methodology."
+
+  # ── Growth sub-splits ─────────────────────────────────────────────────────
+  - ticker_a: VUG
+    ticker_b: QQQ
+    label: "Vanguard Growth vs Nasdaq 100"
+    notes: "Both growth-tilted but QQQ is tech-concentrated; VUG is broader.
+            Diverges on mega-cap tech moves."
+
+  - ticker_a: IWF
+    ticker_b: QQQ
+    label: "Russell Growth vs Nasdaq 100"
+    notes: "Similar to VUG/QQQ — captures tech concentration premium."

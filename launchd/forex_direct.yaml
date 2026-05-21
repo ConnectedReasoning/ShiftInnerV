@@ -1,0 +1,116 @@
+# ShiftInnerV — Composition: Forex Direct
+#
+# Continuous spot FX price series via yfinance XXXYYY=X ticker convention.
+# No ETF wrapper, no expense ratio decay, no creation/redemption premium.
+# These are the actual interbank mid-price series — cleaner for cointegration
+# than the currency ETFs in the currencies silo.
+#
+# IMPORTANT NOTES FOR THIS COMPOSITION:
+#
+#   1. Prices are quoted as units of quote currency per 1 unit of base currency.
+#      e.g. EURUSD=X = 1.08 means 1 EUR buys 1.08 USD.
+#      For spread construction, be careful about quote direction when
+#      mixing USD-base vs USD-quote pairs.
+#
+#   2. No dividends, no corporate actions. Price series are clean.
+#
+#   3. FX markets are 24/5. yfinance returns daily close aligned to
+#      US market close (~5pm ET). Consistent across tickers.
+#
+#   4. Exotic pairs (MXN, INR) have wider spreads and occasional
+#      data gaps. Flag these as experimental — lower confidence tier.
+#
+# Pair groupings:
+#   MAJORS: USD pairs with G7 currencies — most liquid, cleanest data
+#   CROSSES: Non-USD pairs — capture relative G7 dynamics
+#   CARRY: High-yield vs low-yield currency pairs (JPY as funder)
+#   EXPERIMENTAL: EM currencies — use with caution
+
+composition: forex_direct
+
+pairs:
+
+  # ── Majors: USD pairs ─────────────────────────────────────────────────────
+  - ticker_a: EURUSD=X
+    ticker_b: GBPUSD=X
+    label: "EUR/USD vs GBP/USD"
+    notes: "Both priced in USD. Strong cointegration — EU/UK economic linkage.
+            Diverges on Brexit/ECB vs BoE policy differentials."
+
+  - ticker_a: EURUSD=X
+    ticker_b: AUDUSD=X
+    label: "EUR/USD vs AUD/USD"
+    notes: "AUD is a commodity/risk currency; EUR is a reserve currency.
+            Spread widens in risk-off environments."
+
+  - ticker_a: AUDUSD=X
+    ticker_b: NZDUSD=X
+    label: "AUD/USD vs NZD/USD"
+    notes: "Antipodean pair — same region, similar commodity exposure.
+            One of the tightest FX pairs. RBNZ vs RBA policy the key driver."
+
+  - ticker_a: USDCAD=X
+    ticker_b: AUDUSD=X
+    label: "USD/CAD vs AUD/USD"
+    notes: "Both commodity currencies (oil for CAD, metals/agriculture for AUD).
+            Note: quote direction differs — normalize before spread calc."
+
+  - ticker_a: USDCHF=X
+    ticker_b: USDJPY=X
+    label: "USD/CHF vs USD/JPY"
+    notes: "Both safe-haven currencies vs USD. Diverges on relative BoJ/SNB policy."
+
+  # ── Crosses: Non-USD pairs ────────────────────────────────────────────────
+  - ticker_a: EURGBP=X
+    ticker_b: EURUSD=X
+    label: "EUR/GBP vs EUR/USD"
+    notes: "EUR as base in both — isolates GBP vs USD strength differential."
+
+  - ticker_a: EURJPY=X
+    ticker_b: GBPJPY=X
+    label: "EUR/JPY vs GBP/JPY"
+    notes: "JPY as quote in both — classic carry pair. Highly correlated,
+            diverges on EU vs UK growth differentials."
+
+  - ticker_a: EURJPY=X
+    ticker_b: AUDJPY=X
+    label: "EUR/JPY vs AUD/JPY"
+    notes: "Both JPY-funded carry trades. AUD/JPY more sensitive to
+            risk appetite and China data."
+
+  - ticker_a: AUDJPY=X
+    ticker_b: CADJPY=X
+    label: "AUD/JPY vs CAD/JPY"
+    notes: "Commodity currency carry pair — both funded by JPY.
+            Strong cointegration historically."
+
+  - ticker_a: GBPJPY=X
+    ticker_b: CADJPY=X
+    label: "GBP/JPY vs CAD/JPY"
+    notes: "JPY crosses — diverges on UK vs Canada macro."
+
+  # ── Dollar Index proxies ──────────────────────────────────────────────────
+  - ticker_a: EURUSD=X
+    ticker_b: USDCAD=X
+    label: "EUR/USD vs USD/CAD"
+    notes: "Inverse relationship expected (both reflect USD strength).
+            Use carefully — quote direction opposite, spread needs inversion."
+
+  - ticker_a: GBPUSD=X
+    ticker_b: USDCHF=X
+    label: "GBP/USD vs USD/CHF"
+    notes: "Inverse USD relationship. GBP risk vs CHF safe-haven."
+
+  # ── Experimental: EM currencies ──────────────────────────────────────────
+  # Lower data quality. Use for learning, not live deployment.
+  - ticker_a: USDMXN=X
+    ticker_b: USDCAD=X
+    label: "USD/MXN vs USD/CAD [EXPERIMENTAL]"
+    notes: "Both North American currencies with oil/trade exposure to US.
+            MXN data has occasional gaps — treat SNR threshold higher."
+
+  - ticker_a: USDINR=X
+    ticker_b: USDCNY=X
+    label: "USD/INR vs USD/CNY [EXPERIMENTAL]"
+    notes: "EM Asia pair. CNY is managed/semi-pegged — cointegration is
+            structurally different. Monitor for regime breaks. Experimental only."

@@ -36,6 +36,17 @@ universe:
     - XLRE   # Real Estate
     - XLC    # Communications
 
+  # ── Sub-Sector ETFs ───────────────────────────────────────────────────────
+  sub_sectors:
+    - XHB    # Homebuilders
+    - ITB    # iShares Homebuilders (pairs with XHB)
+    - KIE    # Insurance ETF
+    - HACK   # Cybersecurity ETF (Amplify)
+    - CIBR   # Cybersecurity ETF (First Trust)
+    - FINX   # Fintech ETF
+    - MOO    # Agribusiness (moved here from agriculture for pairing)
+    - SOIL   # Fertilizers & Soil ETF
+
   # ── Semiconductors & Tech Hardware ────────────────────────────────────────
   semiconductors:
     - SOXX   # Semiconductor ETF (iShares)
@@ -104,6 +115,11 @@ universe:
     - MBB    # Mortgage-Backed Securities
     - BND    # Vanguard Total Bond
     - AGG    # iShares Core US Aggregate
+    - VCIT   # Vanguard Intermediate Corporate
+    - VCSH   # Vanguard Short-Term Corporate
+    - JNK    # SPDR High Yield (pairs with HYG)
+    - BNDX   # Vanguard Total International Bond
+    - MUB    # iShares National Muni Bond
 
   # ── Volatility & Macro ────────────────────────────────────────────────────
   volatility_macro:
@@ -123,6 +139,43 @@ universe:
     - FXC    # Canadian Dollar
     - FXF    # Swiss Franc
     - CYB    # Chinese Yuan
+
+  # ── Forex Direct (yfinance =X syntax) ────────────────────────────────────
+  # These are continuous spot FX price series — no ETF wrapper decay.
+  # yfinance supports these via the XXXYYY=X ticker convention.
+  forex_direct:
+    - EURUSD=X   # Euro / US Dollar
+    - GBPUSD=X   # British Pound / US Dollar
+    - USDJPY=X   # US Dollar / Japanese Yen
+    - AUDUSD=X   # Australian Dollar / US Dollar
+    - USDCAD=X   # US Dollar / Canadian Dollar
+    - USDCHF=X   # US Dollar / Swiss Franc
+    - NZDUSD=X   # New Zealand Dollar / US Dollar
+    - USDCNY=X   # US Dollar / Chinese Yuan
+    - USDMXN=X   # US Dollar / Mexican Peso
+    - USDINR=X   # US Dollar / Indian Rupee
+    - EURGBP=X   # Euro / British Pound (cross)
+    - EURJPY=X   # Euro / Japanese Yen (cross)
+    - GBPJPY=X   # British Pound / Japanese Yen (cross)
+    - AUDJPY=X   # Australian Dollar / Japanese Yen (cross)
+    - CADJPY=X   # Canadian Dollar / Japanese Yen (cross)
+
+  # ── Factor ETFs ───────────────────────────────────────────────────────────
+  # Style & factor exposures — strong APT theoretical basis for pairing.
+  # Value vs Growth is one of the most institutionally traded pairs.
+  factors:
+    - VTV    # Vanguard Value
+    - VUG    # Vanguard Growth (classic pair with VTV)
+    - IWD    # iShares Russell 1000 Value
+    - IWF    # iShares Russell 1000 Growth (pairs with IWD)
+    - VLUE   # MSCI USA Value Factor
+    - MTUM   # iShares MSCI Momentum Factor
+    - QUAL   # iShares MSCI Quality Factor
+    - USMV   # iShares MSCI Min Volatility
+    - SIZE   # iShares MSCI Size Factor
+    - IWB    # iShares Russell 1000 (broad anchor)
+    - LRGF   # iShares Multifactor Large Cap
+    - VFMF   # Vanguard Multifactor
 
   # ── Shipping & Transportation ─────────────────────────────────────────────
   shipping:
@@ -204,8 +257,6 @@ universe:
 
   # ── Agriculture & Food ────────────────────────────────────────────────────
   agriculture:
-    - MOO    # Agribusiness ETF
-    - SOIL   # Fertilizers & Soil ETF
     - ADM    # Archer-Daniels-Midland
     - BG     # Bunge Global
     - MOS    # Mosaic (fertilizers)

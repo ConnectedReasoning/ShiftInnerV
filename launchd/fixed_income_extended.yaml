@@ -1,0 +1,136 @@
+# ShiftInnerV — Composition: Fixed Income Extended
+#
+# Bond ETF pairs exploiting duration, credit quality, and spread relationships.
+# These pairs are grounded in fixed-income relative value theory:
+#   - Duration pairs: same credit quality, different maturity
+#   - Credit pairs: same duration, different credit quality
+#   - Basis pairs: same index, different provider
+#
+# Note: Bond ETF prices move INVERSELY to yield. Keep this in mind
+# when interpreting spread direction and SNR signals.
+
+composition: fixed_income_extended
+
+pairs:
+
+  # ── Duration ladder (same credit, different maturity) ─────────────────────
+  - ticker_a: TLT
+    ticker_b: IEF
+    label: "20yr Treasury vs 7-10yr Treasury"
+    notes: "Pure duration bet. Long end vs belly of the curve.
+            Spread reflects term premium and curve steepness."
+
+  - ticker_a: IEF
+    ticker_b: SHY
+    label: "7-10yr Treasury vs 1-3yr Treasury"
+    notes: "Mid vs short duration. 2s10s curve proxy."
+
+  - ticker_a: TLT
+    ticker_b: SHY
+    label: "20yr Treasury vs 1-3yr Treasury"
+    notes: "Long end vs front end — maximum duration spread."
+
+  # ── TIPS vs Nominal (inflation breakeven) ────────────────────────────────
+  - ticker_a: TIP
+    ticker_b: IEF
+    label: "TIPS vs 7-10yr Nominal Treasury"
+    notes: "Inflation breakeven pair. Spread reflects market inflation expectations.
+            Widens on inflation surprises, tightens in deflation fears."
+
+  - ticker_a: TIP
+    ticker_b: TLT
+    label: "TIPS vs 20yr Nominal Treasury"
+    notes: "Long-duration inflation breakeven."
+
+  # ── Credit quality (same duration, different credit) ─────────────────────
+  - ticker_a: LQD
+    ticker_b: IEF
+    label: "Investment Grade Corporate vs Treasury"
+    notes: "IG credit spread pair. LQD - IEF = IG spread proxy.
+            Widens in risk-off, tightens in risk-on."
+
+  - ticker_a: HYG
+    ticker_b: LQD
+    label: "High Yield vs Investment Grade"
+    notes: "Credit quality pair. Spread = HY/IG differential.
+            One of the most traded fixed income relative value pairs."
+
+  - ticker_a: JNK
+    ticker_b: HYG
+    label: "SPDR High Yield vs iShares High Yield"
+    notes: "Same credit quality, different provider. Pure basis pair —
+            tight tracking error with periodic divergence. Classic ETF arb."
+
+  - ticker_a: HYG
+    ticker_b: IEF
+    label: "High Yield vs Treasury"
+    notes: "Full credit spread — junk vs risk-free."
+
+  # ── Corporate credit (investment grade sub-pairs) ─────────────────────────
+  - ticker_a: VCIT
+    ticker_b: LQD
+    label: "Vanguard Intermediate Corp vs iShares IG Corp"
+    notes: "Same IG corporate space, different provider/index. Basis pair."
+
+  - ticker_a: VCSH
+    ticker_b: SHY
+    label: "Short-Term Corporate vs Short Treasury"
+    notes: "Short-end credit spread. VCSH - SHY = short-end IG spread."
+
+  - ticker_a: VCIT
+    ticker_b: VCSH
+    label: "Intermediate Corp vs Short-Term Corp"
+    notes: "Duration within IG corporates."
+
+  # ── Aggregate anchors ─────────────────────────────────────────────────────
+  - ticker_a: AGG
+    ticker_b: BND
+    label: "iShares Aggregate vs Vanguard Total Bond"
+    notes: "Same Bloomberg US Aggregate index, different provider.
+            Extremely tight basis pair. Small but consistent divergences."
+
+  - ticker_a: BND
+    ticker_b: IEF
+    label: "Total Bond Market vs 7-10yr Treasury"
+    notes: "Broad bond market vs pure duration anchor."
+
+  # ── International / EM spread ─────────────────────────────────────────────
+  - ticker_a: EMB
+    ticker_b: LQD
+    label: "EM Bonds vs IG Corporate"
+    notes: "EM sovereign spread vs US IG corporate spread.
+            Diverges on dollar strength, EM risk appetite."
+
+  - ticker_a: EMB
+    ticker_b: HYG
+    label: "EM Bonds vs US High Yield"
+    notes: "EM spread vs US junk spread — both risk assets in fixed income."
+
+  - ticker_a: BNDX
+    ticker_b: BND
+    label: "International Bond vs US Total Bond"
+    notes: "Global vs domestic fixed income. Dollar and rate differential."
+
+  # ── Mortgage-backed ───────────────────────────────────────────────────────
+  - ticker_a: MBB
+    ticker_b: IEF
+    label: "Mortgage-Backed vs Treasury"
+    notes: "MBS spread over Treasuries. Sensitive to prepayment risk
+            and housing market conditions."
+
+  - ticker_a: MBB
+    ticker_b: AGG
+    label: "Mortgage-Backed vs Aggregate"
+    notes: "MBS as a component weight vs total market."
+
+  # ── Muni vs Treasury (tax-equivalent) ────────────────────────────────────
+  - ticker_a: MUB
+    ticker_b: IEF
+    label: "Muni Bond vs Treasury"
+    notes: "Tax-equivalent spread. Muni/Treasury ratio typically 80-90%.
+            Diverges on tax policy news and state fiscal stress."
+
+  - ticker_a: MUB
+    ticker_b: LQD
+    label: "Muni Bond vs IG Corporate"
+    notes: "After-tax yield spread between munis and taxable IG."
