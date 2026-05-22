@@ -35,6 +35,7 @@ import sys
 import logging
 import argparse
 import subprocess
+import yaml
 from datetime import datetime, date
 from pathlib import Path
 from dotenv import load_dotenv
@@ -203,6 +204,12 @@ def run_subprocess(cmd: list, label: str, log: logging.Logger) -> bool:
 
 def latest_promoted() -> str | None:
     files = sorted(Path(COMPOSITIONS_DIR).glob("promoted_*.yaml"), reverse=True)
+    return str(files[0]) if files else None
+
+
+def latest_sourced() -> str | None:
+    """Get the most recent sourced_YYYYMMDD.yaml file."""
+    files = sorted(Path(COMPOSITIONS_DIR).glob("sourced_*.yaml"), reverse=True)
     return str(files[0]) if files else None
 
 
@@ -553,6 +560,87 @@ def main():
                 log.warning("No promoted yaml found — skipping.")
 
         log.info("Sentinel run complete.")
+        
+        # ── Generate end-of-run briefing ─────────────────────────────────────
+        try:
+            from shiftinnerv.reporting.briefing_generator import generate_sentinel_briefing
+            
+            # Collect briefing data from the run
+            sourced_pairs = []
+            verdicts = {'active': 0, 'monitor': 0, 'reject': 0}
+            rejected_pairs = []
+            
+            # Parse sourced_composition.yaml for top pairs
+            sourced_yaml = latest_sourced()
+            if sourced_yaml and os.path.exists(sourced_yaml):
+                try:
+                    with open(sourced_yaml) as f:
+                        lines = f.readlines()
+                        
+                        # Extract top 5 pairs with scores from header comments
+                        # Format: "#   TICKER1 / TICKER2  score=XX.X  corr=X.XXX  cluster=N"
+                        import re
+                        for line in lines:
+                            if line.startswith('#') and '/' in line and 'score=' in line:
+                                # Parse the comment line
+                                match = re.search(
+                                    r'#\s+(\w+-?\w*)\s+/\s+(\w+-?\w*)\s+score=([\d.]+)\s+corr=([\d.]+)',
+                                    line
+                                )
+                                if match:
+                                    ticker1, ticker2, score, corr = match.groups()
+                                    if len(sourced_pairs) < 5:
+                                        sourced_pairs.append({
+                                            'ticker1': ticker1,
+                                            'ticker2': ticker2,
+                                            'score': float(score),
+                                            'corr': float(corr)
+                                        })
+                            if len(sourced_pairs) >= 5:
+                                break
+                except Exception as e:
+                    log.debug(f"Could not parse sourced yaml: {e}")
+            
+            # Use the regime state from earlier in the run (stored in 'regime' variable)
+            regime_state = 'NORMAL'
+            regime_vix = 0.0
+            regime_mult = 1.0
+            try:
+                if 'regime' in locals():
+                    regime_state = regime.state.value if hasattr(regime.state, 'value') else str(regime.state)
+                    regime_vix = regime.vix_level
+                    regime_mult = regime.position_size_multiplier
+            except Exception as e:
+                log.debug(f"Could not extract regime state from run: {e}")
+            
+            # Load open positions count
+            open_pos_count = 0
+            try:
+                import sqlite3
+                if os.path.exists(LEDGER_DB_PATH):
+                    conn = sqlite3.connect(LEDGER_DB_PATH)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM trial_ledger WHERE is_closed=0")
+                    open_pos_count = cursor.fetchone()[0]
+                    conn.close()
+            except Exception as e:
+                log.debug(f"Could not count open positions: {e}")
+            
+            # Generate and print briefing
+            briefing = generate_sentinel_briefing(
+                regime_state=regime_state,
+                regime_vix=regime_vix,
+                regime_multiplier=regime_mult,
+                sourced_pairs=sourced_pairs,
+                screening_counts={},
+                verdicts=verdicts,
+                rejected_pairs=rejected_pairs,
+                open_positions=open_pos_count,
+            )
+            print(briefing)
+            
+        except Exception as e:
+            log.debug(f"Could not generate briefing: {e}")
 
     finally:
         release_lock()

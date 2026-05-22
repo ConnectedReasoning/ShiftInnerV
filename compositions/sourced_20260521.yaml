@@ -1,5 +1,5 @@
 # ShiftInnerV — Sourced Composition (Intelligent Pair Selection)
-# Generated: 2026-05-21 19:09
+# Generated: 2026-05-21 19:58
 # Pairs: 100
 # Selection method: Correlation clustering + decay detection + volatility matching + historical success
 #
@@ -259,6 +259,11 @@ pairs:
   label: CORN vs DBA
   lookback_years: 3
   cointegrated: unknown
+- ticker1: SOXX
+  ticker2: SVXY
+  label: SOXX vs SVXY
+  lookback_years: 3
+  cointegrated: unknown
 - ticker1: EEM
   ticker2: FXI
   label: EEM vs FXI
@@ -482,11 +487,6 @@ pairs:
 - ticker1: IWM
   ticker2: XLB
   label: IWM vs XLB
-  lookback_years: 3
-  cointegrated: unknown
-- ticker1: SOXX
-  ticker2: SVXY
-  label: SOXX vs SVXY
   lookback_years: 3
   cointegrated: unknown
 - ticker1: LQD
