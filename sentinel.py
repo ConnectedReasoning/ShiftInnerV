@@ -35,7 +35,7 @@ import sys
 import logging
 import argparse
 import subprocess
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -365,6 +365,65 @@ def run_regime_detection(log: logging.Logger):
     return regime
 
 
+# ── Intelligent Pair Sourcing ─────────────────────────────────────────────────
+
+def run_pair_sourcing(log: logging.Logger) -> str | None:
+    """
+    Generate intelligent pair composition for today's screening.
+    
+    Returns path to generated composition file, or None if sourcing is disabled.
+    
+    This step runs correlation clustering + decay detection to produce
+    a targeted composition of ~100 pairs with high cointegration likelihood,
+    replacing brute-force random pair generation.
+    """
+    from shiftinnerv.pipelines.pair_sourcer import source_pairs
+    
+    print("\n── Intelligent Pair Sourcing ────────────────────────────────────")
+    
+    universe_path = os.path.join(PROJECT_DIR, "universe.yaml")
+    if not os.path.exists(universe_path):
+        log.warning(f"[pair_sourcing] universe.yaml not found: {universe_path}")
+        print("  universe.yaml not found — skipping pair sourcing")
+        return None
+    
+    output_path = os.path.join(
+        COMPOSITIONS_DIR,
+        f"sourced_{date.today().strftime('%Y%m%d')}.yaml"
+    )
+    
+    # Skip if already generated today
+    if os.path.exists(output_path):
+        mtime = datetime.fromtimestamp(os.path.getmtime(output_path))
+        if mtime.date() == date.today():
+            log.info(f"[pair_sourcing] Using existing sourced composition: {output_path}")
+            print(f"  ✓ Using existing sourced composition (generated {mtime.strftime('%H:%M')})")
+            return output_path
+    
+    log.info("[pair_sourcing] START")
+    print("  Generating intelligent pairs (correlation clustering + decay detection)...")
+    
+    try:
+        source_pairs(
+            universe_path=universe_path,
+            output_path=output_path,
+            top_n=100,
+            lookback_years=3,
+            min_correlation=0.3,
+            n_clusters=15,
+            data_dir=DATA_DIR,
+        )
+        log.info(f"[pair_sourcing] OK — {output_path}")
+        print(f"  ✓ Generated {output_path}")
+        return output_path
+    
+    except Exception as e:
+        log.error(f"[pair_sourcing] FAIL — {e}")
+        print(f"  ✗ Pair sourcing failed: {e}")
+        print(f"    Continuing without sourced composition")
+        return None
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -415,8 +474,21 @@ def main():
         # ── Step 0: Market Regime Detection (Item 8) ──────────────────────────
         regime = run_regime_detection(log)
 
-        # ── Step 1: Monitor pass ──────────────────────────────────────────────
-        run_subprocess([sys.executable, MONITOR_PY], "monitor.py", log)
+        # ── Step 0.5: Intelligent Pair Sourcing ────────────────────────────────
+        sourced_composition = run_pair_sourcing(log)
+        
+        # If pair sourcing succeeded, screen the sourced composition
+        # Otherwise, monitor.py will screen anomaly compositions as usual
+        if sourced_composition:
+            log.info(f"[monitor] Screening sourced composition: {sourced_composition}")
+            run_subprocess(
+                [sys.executable, MONITOR_PY, "--screen", sourced_composition, "--workers", "10"],
+                "monitor.py (sourced pairs)",
+                log
+            )
+        else:
+            # ── Step 1: Monitor pass (default anomaly detection) ──────────────────
+            run_subprocess([sys.executable, MONITOR_PY], "monitor.py", log)
 
         # ── Step 1b: Position Revalidation (Item 13) ──────────────────────────
         run_position_revalidation(log)

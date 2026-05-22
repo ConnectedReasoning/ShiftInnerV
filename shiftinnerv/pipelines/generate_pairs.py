@@ -90,6 +90,8 @@ def main():
                         help="Lookback years for all pairs (default: 1)")
     parser.add_argument("--workers",   type=int, default=1,
                         help="Parallel workers for immediate screen (default: 1)")
+    parser.add_argument("--seed",      type=int, default=None,
+                        help="Random seed for reproducible pair selection (default: None)")
     parser.add_argument("--list-categories", action="store_true",
                         help="List available categories and exit")
     args = parser.parse_args()
