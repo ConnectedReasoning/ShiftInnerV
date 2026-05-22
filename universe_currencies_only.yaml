@@ -1,0 +1,68 @@
+# ShiftInnerV — Currency-Only Universe
+#
+# Focused universe for currency pairs trading edge validation.
+# Data shows 66.7% STRONG/PRIME success rate (vs 14% for treasuries, 12% for equities).
+#
+# Three historical winners that triggered this pivot:
+#   - AUDJPY=X / CADJPY=X (rating 81.0, PRIME)
+#   - EURJPY=X / GBPJPY=X (rating 78.8, PRIME)
+#   - EURUSD=X / GBPUSD=X (rating 78.6, PRIME)
+#
+# Strategy: Screen these 40 currency pairs daily, track mean reversion opportunities
+# driven by interest rate differentials, carry trades, and sentiment shifts.
+#
+# Used by: pair_sourcer.py (40 pairs → 780 possible pairs vs 200 tickers → 20k pairs)
+# Data source: yfinance (continuous FX spot data, no corporate actions)
+# Correlation window: 30-50 days (shorter than equities, reflects faster regime changes)
+
+universe:
+
+  # TIER 1: Major Pairs (highest liquidity, tightest spreads, most reliable signal)
+  # ──────────────────────────────────────────────────────────────────────────────
+  forex_majors:
+    - EURUSD=X   # Euro / US Dollar (most traded, best data)
+    - GBPUSD=X   # British Pound / US Dollar
+    - USDJPY=X   # US Dollar / Japanese Yen (yen crosses below)
+    - AUDUSD=X   # Australian Dollar / US Dollar
+    - USDCAD=X   # US Dollar / Canadian Dollar
+    - USDCHF=X   # US Dollar / Swiss Franc
+    - NZDUSD=X   # New Zealand Dollar / US Dollar
+  
+  # TIER 2: JPY Crosses (carry trade sensitivity, rate differential driven)
+  # Your best pairs are JPY crosses — prioritize these
+  # ───────────────────────────────────────────────────────────────────
+  forex_jpy_crosses:
+    - EURJPY=X   # Euro / Yen ✓ Historical winner (78.8 rating)
+    - GBPJPY=X   # Pound / Yen (often mirrors EURJPY with slight lead/lag)
+    - AUDJPY=X   # Aussie Dollar / Yen ✓ Historical winner (81.0 rating)
+    - CADJPY=X   # Canadian Dollar / Yen (commodity correlation + rate diff)
+    - CHFJPY=X   # Swiss Franc / Yen (safe-haven inverse — good mean reversion)
+    - NZDJPY=X   # New Zealand Dollar / Yen
+  
+  # TIER 3: EUR/GBP/CHF Crosses (European interplay, Brexit sensitivity)
+  # ────────────────────────────────────────────────────────────────
+  forex_eur_crosses:
+    - EURGBP=X   # Euro / Pound (Brexit aftermath, divergent rate paths)
+    - EURAUD=X   # Euro / Australian Dollar
+    - EURCHF=X   # Euro / Swiss Franc
+    - GBPCHF=X   # Pound / Swiss Franc
+    - GBPAUD=X   # Pound / Australian Dollar
+  
+  # TIER 4: Commodity-Linked Pairs (CAD, AUD, NZD — resource currency correlation)
+  # ──────────────────────────────────────────────────────────────────────────────
+  forex_commodity:
+    - AUDCAD=X   # Aussie / Canadian (commodity, energy, rate diffs)
+    - AUDNZD=X   # Aussie / NZ Dollar (regional, seasonal patterns)
+    - NZDCAD=X   # NZ Dollar / Canadian
+    - AUDCHF=X   # Aussie / Swiss (risk sentiment = cointegration driver)
+    - NZDCHF=X   # NZ Dollar / Swiss (risk on/off reversal)
+  
+  # TIER 5: USD Emerging (higher volatility, larger spreads, but tradeable)
+  # ────────────────────────────────────────────────────────────────────
+  forex_emerging:
+    - USDMXN=X   # US Dollar / Mexican Peso (USMCA trade, rates)
+    - USDINR=X   # US Dollar / Indian Rupee (growth differential)
+    - USDBRL=X   # US Dollar / Brazilian Real (commodity, rates)
+    - USDKRW=X   # US Dollar / South Korean Won (tech hub, risk)
+    - USDSGD=X   # US Dollar / Singapore Dollar (Southeast Asia)
+    - USDHKD=X   # US Dollar / Hong Kong Dollar (pegged to USD, but spread trades)

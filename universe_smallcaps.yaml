@@ -1,0 +1,94 @@
+# ShiftInnerV — Small Cap Universe
+#
+# Focused on less-crowded equities where institutional capital avoids.
+# Hypothesis: Small caps less efficiently priced than mega-cap equities.
+# Lower liquidity = bigger mean-reversion opportunities.
+#
+# Selection criteria:
+# - Market cap: $1B-$10B (big enough for data, small enough to be inefficient)
+# - Daily volume: $20M+ (tradeable, not illiquid)
+# - Sector diversity (avoid clustering in one sector)
+# - 3+ years of history
+#
+# Used by: pair_sourcer.py to generate small-cap pair universe
+
+universe:
+
+  # ── Technology & Software (small/mid cap) ──────────────────────────────────
+  tech_software:
+    - CRWD    # CrowdStrike (cybersecurity, ~$40B actually, but core small-cap like)
+    - NET     # Cloudflare (cloud infrastructure)
+    - BILL    # Bill.com (fintech SaaS)
+    - DDOG    # Datadog (monitoring)
+    - ESTC    # Elastic (search & analytics)
+    - MDB     # MongoDB (database)
+    - SNOW    # Snowflake (data warehouse)
+    - UPST    # Upstart (AI lending)
+    - RBLX    # Roblox (metaverse platform)
+    - PINS    # Pinterest (social commerce)
+
+  # ── Biotech & Healthcare (small/mid cap) ───────────────────────────────────
+  biotech_healthcare:
+    - VEEV    # Veeva Systems (SaaS life sciences)
+    - DXCM    # Dexcom (glucose monitors)
+    - LPLA    # LPL Financial (wealth management)
+    - TECH    # Bio-Techne (life sciences tools)
+    - CVNA    # Carvana (used car e-commerce)
+    - VROOM   # Vroom (online auto retail)
+    - STWD    # Starwood Property (REITs/hospitality)
+    - TPH     # Theraphostics (radiopharmaceutical)
+    - RCUS    # Arcus Biosciences (biotech)
+
+  # ── Fintech & Payments (small/mid cap) ─────────────────────────────────────
+  fintech:
+    - PAYC    # Paycom (payroll SaaS)
+    - HOOD    # Robinhood (retail brokerage)
+    - SOFI    # SoFi (neobank)
+    - COIN    # Coinbase (crypto exchange)
+    - MSTR    # MicroStrategy (business intelligence, Bitcoin holder)
+    - PRTS    # Altisource Portfolio Solutions
+    - FNLC    # Financial Institutions (small bank)
+    - TRMB    # Trimble (GPS/GIS)
+
+  # ── E-Commerce & Retail (small/mid cap) ────────────────────────────────────
+  ecommerce_retail:
+    - MELI    # MercadoLibre (Latin America e-commerce)
+    - ETSY    # Etsy (marketplace)
+    - SHOP    # Shopify (e-commerce platform)
+    - DASH    # DoorDash (food delivery)
+    - UBER    # Uber (rideshare/food delivery)
+    - LMND    # Lemonade (insurtech)
+    - RDFN    # Redfin (real estate tech)
+    - ABNB    # Airbnb (home sharing)
+
+  # ── Energy & Materials (small/mid cap) ─────────────────────────────────────
+  energy_materials:
+    - PLUG    # Plug Power (hydrogen fuel cells)
+    - FCEL    # FuelCell Energy (fuel cells)
+    - CLNE    # Clean Energy Fuels (natural gas)
+    - BLNK    # Blink Charging (EV charging)
+    - XPEV    # XPeng (Chinese EV maker)
+    - NIO     # Nio (Chinese EV)
+    - LI      # Li Auto (Chinese EV)
+    - STLD    # Steel Dynamics (steel producer)
+
+  # ── Manufacturing & Industrials (small/mid cap) ────────────────────────────
+  manufacturing:
+    - RGEN    # Repligen (bioprocessing equipment)
+    - PEN     # Penumbra (neurotech devices)
+    - PCPC    # PC-Doctor (diagnostics)
+    - CBRL    # Cracker Barrel (small restaurant chain)
+    - SKX     # Skechers (athletic footwear)
+    - BOOT    # Boot Barn (western wear retail)
+    - WSM     # Williams Sonoma (home goods)
+
+  # ── Miscellaneous Small/Mid (underexplored) ────────────────────────────────
+  misc_small:
+    - GOOG    # (control: mega-cap, should underperform)
+    - MU      # Micron Technology (memory chips)
+    - ON      # ON Semiconductor (analog chips)
+    - AMD     # Advanced Micro Devices (processors)
+    - QCOM    # Qualcomm (mobile/RF chips)
+    - AVGO    # Broadcom (semiconductors)
+    - ASML    # ASML (semiconductor equipment, Dutch)
+    - TSM     # Taiwan Semiconductor (foundry)

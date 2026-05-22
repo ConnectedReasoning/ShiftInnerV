@@ -565,10 +565,11 @@ def main():
         try:
             from shiftinnerv.reporting.briefing_generator import generate_sentinel_briefing
             
-            # Collect briefing data from the run
+            # Initialize variables
             sourced_pairs = []
             verdicts = {'active': 0, 'monitor': 0, 'reject': 0}
             rejected_pairs = []
+            total_pairs_sourced = 0
             
             # Parse sourced_composition.yaml for top pairs
             sourced_yaml = latest_sourced()
@@ -577,14 +578,20 @@ def main():
                     with open(sourced_yaml) as f:
                         lines = f.readlines()
                         
+                        # Extract total pairs count from header
+                        for line in lines[:20]:
+                            if 'Pairs:' in line:
+                                try:
+                                    total_pairs_sourced = int(line.split('Pairs:')[1].strip())
+                                except:
+                                    pass
+                        
                         # Extract top 5 pairs with scores from header comments
-                        # Format: "#   TICKER1 / TICKER2  score=XX.X  corr=X.XXX  cluster=N"
                         import re
                         for line in lines:
                             if line.startswith('#') and '/' in line and 'score=' in line:
-                                # Parse the comment line
                                 match = re.search(
-                                    r'#\s+(\w+-?\w*)\s+/\s+(\w+-?\w*)\s+score=([\d.]+)\s+corr=([\d.]+)',
+                                    r'#\s+([\w=-]+)\s+/\s+([\w=-]+)\s+score=([\d.]+)\s+corr=([\d.]+)',
                                     line
                                 )
                                 if match:
@@ -627,6 +634,9 @@ def main():
                 log.debug(f"Could not count open positions: {e}")
             
             # Generate and print briefing
+            # Detect universe from loaded tickers
+            universe_name = "currencies" if any('=' in p['ticker1'] for p in sourced_pairs) else "smallcaps"
+            
             briefing = generate_sentinel_briefing(
                 regime_state=regime_state,
                 regime_vix=regime_vix,
@@ -636,11 +646,29 @@ def main():
                 verdicts=verdicts,
                 rejected_pairs=rejected_pairs,
                 open_positions=open_pos_count,
+                total_pairs_sourced=total_pairs_sourced,
+                total_pairs_screened=100,
+                universe_name=universe_name,
             )
-            print(briefing)
+            
+            # Write briefing to markdown file in reports folder (DATA_STORAGE_PATH)
+            reports_dir = os.path.join(DATA_DIR, 'reports')
+            os.makedirs(reports_dir, exist_ok=True)
+            
+            report_filename = f"briefing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+            report_path = os.path.join(reports_dir, report_filename)
+            
+            try:
+                with open(report_path, 'w') as rf:
+                    rf.write(briefing)
+                print(briefing)
+                log.info(f"Briefing saved to: {report_path}")
+            except Exception as e:
+                log.warning(f"Could not save briefing to file: {e}")
+                print(briefing)
             
         except Exception as e:
-            log.debug(f"Could not generate briefing: {e}")
+            log.warning(f"Could not generate briefing: {e}", exc_info=True)
 
     finally:
         release_lock()
