@@ -9,10 +9,13 @@ from crewai import Crew, Process
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
-from shiftinnerv.pipelines.agents import make_crew
-from shiftinnerv.pipelines.tasks import build_tasks
 from shiftinnerv.services.data_manager import ensure_data, tickers_from_pairs, check_data_staleness
 from shiftinnerv.pipelines.dossier import render_dossier
+# Item 21: News & Macro Context
+from shiftinnerv.news.news_brief_builder import build_news_context_with_flags
+from shiftinnerv.pipelines.agents import make_analyst
+from shiftinnerv.pipelines.tasks import build_analyst_task
+from shiftinnerv.sensors.correlation import CorrelationDecayTool
 from promote import run as promote_run
 from shiftinnerv.services.trial_ledger import (
     record_active_verdict,
@@ -79,59 +82,6 @@ with open(pairs_path, "r") as f:
     composition = yaml.safe_load(f)
 
 pairs = composition["pairs"]
-
-
-def extract_report_text(raw: str) -> tuple[str, str]:
-    """
-    Recover the actual === CORRELATION DECAY REPORT === text from the Scout's
-    output regardless of whether llama3.1 returned it as plain text or wrapped
-    it in a JSON blob. Strips trailing JSON closing characters ("}} etc).
-
-    Returns
-    -------
-    (extracted_text, recovery_type)
-    recovery_type: "success" | "fallback_regex" | "fallback_json_extraction" | "failure"
-    """
-    # Already plain text — no fallback needed
-    if raw.strip().startswith("=== CORRELATION DECAY REPORT ==="):
-        return raw.strip(), "success"
-
-    # Fallback 1: Regex search for report header anywhere in string
-    match = re.search(r"(=== CORRELATION DECAY REPORT ===.*)", raw, re.DOTALL)
-    if match:
-        text = match.group(1).strip()
-        text = text.replace('\\n', '\n')
-        text = re.sub(r'[\"\'\}\]]+\s*$', '', text).strip()
-        return text, "fallback_regex"
-
-    # Fallback 2: JSON parsing — walk all string values
-    try:
-        blob = json.loads(raw)
-
-        def find_report(obj):
-            if isinstance(obj, str) and "=== CORRELATION DECAY REPORT ===" in obj:
-                idx = obj.index("=== CORRELATION DECAY REPORT ===")
-                return obj[idx:].strip()
-            if isinstance(obj, dict):
-                for v in obj.values():
-                    r = find_report(v)
-                    if r:
-                        return r
-            if isinstance(obj, list):
-                for item in obj:
-                    r = find_report(item)
-                    if r:
-                        return r
-            return None
-
-        found = find_report(blob)
-        if found:
-            return found, "fallback_json_extraction"
-    except Exception:
-        pass
-
-    # Total failure — return raw so downstream still has something
-    return raw.strip(), "failure"
 
 
 def extract_search_findings(raw: str) -> str:
@@ -215,46 +165,31 @@ def _setup_log():
     return logger, log_path
 
 
-def _setup_llm_logger() -> logging.Logger:
-    """Configure the LLM-call outcome logger (separate file for measurement)."""
-    os.makedirs(data_dir, exist_ok=True)
-    llm_logger = logging.getLogger("shiftinnerv.llm_calls")
-    llm_logger.setLevel(logging.INFO)
-    if not llm_logger.handlers:  # avoid duplicate handlers on re-import
-        handler = logging.FileHandler(os.path.join(data_dir, "llm_calls.log"))
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
-        ))
-        llm_logger.addHandler(handler)
-    return llm_logger
-
-
-def log_llm_outcome(
-    llm_logger: logging.Logger,
-    agent_name: str,
-    pair: str,
-    raw_output: str,
-    recovery_type: str,
-    success: bool,
-) -> None:
+def _build_analyst_brief(scout_report: str, det_verdict, news_context: str) -> str:
     """
-    Log a single LLM call outcome to llm_calls.log.
-
-    recovery_type: "success" | "fallback_regex" | "fallback_json_extraction" | "failure"
-    success:       True if usable output was recovered
+    Assemble the full brief that The Analyst receives.
+    Combines the deterministic tool output, gate verdicts, and news context.
     """
-    status = "OK" if success else "FAIL"
-    truncated = raw_output[:200].replace("\n", " ")
-    llm_logger.info(
-        f"[{status}] {agent_name} {pair} | recovery={recovery_type} | "
-        f"output={truncated}"
+    verdict_block = (
+        f"=== DETERMINISTIC VERDICT ===\n"
+        f"Verdict:   {det_verdict.verdict}\n"
+        f"Rationale: {det_verdict.rationale}\n"
+        f"\nGATE SUMMARY:\n"
     )
+    for gate_name, gate in det_verdict.gates.items():
+        verdict_block += f"  {gate_name}: {gate.status}\n"
+    verdict_block += "============================="
+
+    sections = [scout_report, verdict_block]
+    if news_context:
+        sections.append(news_context)
+    return "\n\n".join(sections)
+
 
 # ── Run the crew for each pair ────────────────────────────────────────────────
 if __name__ == "__main__":
     from datetime import datetime
     log, log_path = _setup_log()
-    llm_log = _setup_llm_logger()
 
     n      = len(pairs)
     source = os.path.basename(pairs_path)
@@ -342,6 +277,15 @@ if __name__ == "__main__":
     print(f"  ✓ All data is fresh. Proceeding with verdicts.")
     log.info("Data staleness check PASSED. Proceeding with verdict generation.")
 
+    # Item 21: Warn (never abort) if news API keys are missing
+    import os as _os_news
+    if not (_os_news.getenv("FRED_API_KEY", "") or ""):
+        print("  ⚠️  FRED_API_KEY not set — Tier 1/2 macro context will be limited")
+        log.warning("[Item 21] FRED_API_KEY not set — macro calendar fetch degraded")
+    if not (_os_news.getenv("TIINGO_KEY", "") or _os_news.getenv("TIINGO_API_KEY", "")):
+        print("  ⚠️  TIINGO_KEY not set — Tier 3 ticker headlines will be skipped")
+        log.warning("[Item 21] TIINGO_KEY not set — Tier 3 headlines skipped")
+
     # ── Run crew for each pair ────────────────────────────────────────────────
     verdicts = []
 
@@ -360,61 +304,45 @@ if __name__ == "__main__":
 
         lookback_years = pair.get("lookback_years", 3)
         n_pairs = len(pairs)
-        quant_scout, signal_mathematician = make_crew(
-            ticker1, ticker2,
-            lookback_years=lookback_years,
-            n_pairs_in_composition=n_pairs,
-            pair_label=pair.get("label", ""),
-            factor_proxy_ticker=pair.get("factor_proxy", ""),
-        )
-        correlation_audit, quant_assessment = build_tasks(
-            pair=pair,
-            agents=(quant_scout, signal_mathematician)
-        )
-        crew = Crew(
-            agents=[quant_scout, signal_mathematician],
-            tasks=[correlation_audit, quant_assessment],
-            process=Process.sequential,
-            verbose=False
+        lookback_years = pair.get("lookback_years", 3)
+        n_pairs = len(pairs)
+
+        # ── Item 21: fetch news & macro context (deterministic) ───────────────
+        _news_context, _cb_decision_recent, _macro_surprise = \
+            build_news_context_with_flags(ticker1, ticker2)
+        log.info(
+            f"[news_context] {ticker1}/{ticker2} "
+            f"{'populated' if _news_context else 'empty'} | "
+            f"cb_recent={_cb_decision_recent} macro_surprise={_macro_surprise}"
         )
 
+        # ── Deterministic tool call — no LLM involved ─────────────────────────
         crew_error = None
         result = None
+        scout_report_text = ""
         try:
-            result = crew.kickoff()
+            _tool = CorrelationDecayTool(
+                expected_ticker1=ticker1,
+                expected_ticker2=ticker2,
+                lookback_years=lookback_years,
+                n_pairs_in_composition=n_pairs,
+                pair_label=pair.get("label", ""),
+                factor_proxy_ticker=pair.get("factor_proxy", ""),
+            )
+            _tool_output = _tool._run(ticker1=ticker1, ticker2=ticker2)
+            if _tool_output.startswith("Tool error:"):
+                crew_error = _tool_output
+                log.error(f"Tool failed for {label}: {_tool_output}")
+            elif "=== CORRELATION DECAY REPORT ===" not in _tool_output:
+                crew_error = "Tool returned unexpected output (no report header)"
+                log.error(f"Tool bad output for {label}: {_tool_output[:120]}")
+            else:
+                scout_report_text = _tool_output
+                log.info(f"[tool] {ticker1}/{ticker2} report OK ({len(scout_report_text)} chars)")
         except Exception as e:
             crew_error = str(e)
-            log.error(f"Crew failed for {label}: {e}")
+            log.error(f"Tool exception for {label}: {e}")
 
-        # ── Extract Scout report text (Part 1: instrumentation) ───────────────
-        scout_raw = ""
-        scout_report_text = ""
-        for task in [correlation_audit, quant_assessment]:
-            if (hasattr(task, "output") and task.output
-                    and hasattr(task, "agent")
-                    and task.agent.role == "Lead Quantitative Scout"):
-                scout_raw = task.output.raw or ""
-                break
-
-        if scout_raw:
-            scout_report_text, scout_recovery = extract_report_text(scout_raw)
-            scout_success = scout_recovery != "failure"
-            log_llm_outcome(
-                llm_logger=llm_log,
-                agent_name="Lead Quantitative Scout",
-                pair=f"{ticker1}/{ticker2}",
-                raw_output=scout_raw,
-                recovery_type=scout_recovery,
-                success=scout_success,
-            )
-            if not scout_success:
-                print(f"\r  ⚠️  Scout output recovery FAILED for {ticker1}/{ticker2}")
-                log.warning(f"Scout recovery FAILED for {ticker1}/{ticker2}")
-            elif scout_recovery != "success":
-                log.warning(
-                    f"Scout output required fallback ({scout_recovery}) "
-                    f"for {ticker1}/{ticker2}"
-                )
 
         # ── STEP 2: Deterministic gate evaluation (PRIMARY trading decision) ──
         verdict_tag = "REJECT "
@@ -533,21 +461,35 @@ if __name__ == "__main__":
 
         verdicts.append((ticker1, ticker2, verdict_tag))
 
-        # ── STEP 3: Log Signal Mathematician LLM output (narrative only) ──────
-        verdict_text = str(result.raw) if result and not crew_error else ""
-        if verdict_text:
-            sm_recovered, sm_recovery = verdict_text, "success"
-            # Signal Math output doesn't use the REPORT header — just measure it
-            sm_success = bool(verdict_text.strip())
-            log_llm_outcome(
-                llm_logger=llm_log,
-                agent_name="Signal Mathematician",
-                pair=f"{ticker1}/{ticker2}",
-                raw_output=verdict_text,
-                recovery_type=sm_recovery,
-                success=sm_success,
-            )
-            log.debug(f"FULL SIGNAL MATH OUTPUT:\n{verdict_text}")
+        # ── STEP 3: Run The Analyst (single LLM call) ────────────────────────
+        analyst_text = ""
+        if not crew_error and scout_report_text and det_verdict:
+            try:
+                _analyst = make_analyst()
+                _brief = _build_analyst_brief(
+                    scout_report_text, det_verdict, _news_context
+                )
+                _task = build_analyst_task(
+                    analyst=_analyst,
+                    brief=_brief,
+                    ticker1=ticker1,
+                    ticker2=ticker2,
+                    label=label,
+                    verdict=det_verdict.verdict,
+                )
+                _crew = Crew(
+                    agents=[_analyst],
+                    tasks=[_task],
+                    process=Process.sequential,
+                    verbose=False,
+                )
+                _result = _crew.kickoff()
+                analyst_text = str(_result.raw) if _result else ""
+                log.info(f"[analyst] {ticker1}/{ticker2} OK ({len(analyst_text)} chars)")
+            except Exception as e:
+                log.warning(f"[analyst] {ticker1}/{ticker2} failed: {e}")
+                analyst_text = ""
+
 
         # ── STEP 4: Record ACTIVE verdicts to trial ledger ────────────────────
         is_active = (det_verdict is not None and det_verdict.verdict == "ACTIVE")
@@ -590,17 +532,11 @@ if __name__ == "__main__":
 
         # ── Build appendix ────────────────────────────────────────────────────
         appendix_lines = []
-        for task in [correlation_audit, quant_assessment]:
-            if hasattr(task, "output") and task.output:
-                raw  = task.output.raw or ""
-                role = task.agent.role
-                if role == "Lead Quantitative Scout":
-                    cleaned = scout_report_text if scout_report_text else raw
-                else:
-                    cleaned = raw
-                appendix_lines.append(f"### {role}\n")
-                appendix_lines.append(f"```\n{cleaned}\n```\n")
-                log.debug(f"TASK OUTPUT [{role}]:\n{cleaned}")
+        if scout_report_text:
+            appendix_lines.append("### Correlation Decay Report (deterministic)\n")
+            appendix_lines.append(f"```\n{scout_report_text}\n```\n")
+            log.debug(f"TOOL OUTPUT [{ticker1}/{ticker2}]:\n{scout_report_text}")
+
 
         # ── Write report ──────────────────────────────────────────────────────
         safe_label = label.lower()
@@ -626,9 +562,9 @@ if __name__ == "__main__":
                     f.write("**Gate Summary:**\n")
                     for gk, gs in sorted(gate_results.items()):
                         f.write(f"- {gk}: {gs}\n")
-                f.write("\n### Signal Mathematician Narrative\n\n")
-                if verdict_text:
-                    f.write(verdict_text)
+                f.write("\n### Analyst Interpretation\n\n")
+                if analyst_text:
+                    f.write(analyst_text)
             f.write("\n\n---\n\n")
             f.write("## Appendix: Tool Execution Log\n\n")
             f.write("\n".join(appendix_lines))

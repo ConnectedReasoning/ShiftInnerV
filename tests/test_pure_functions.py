@@ -5,7 +5,6 @@ Tests for string parsing and text extraction functions that have
 no external dependencies:
 
   main.py:
-    - extract_report_text
     - extract_search_findings
 
   summarize.py:
@@ -79,9 +78,8 @@ def _extract_functions(module_name: str, func_names: list):
 
 # ── Load pure functions without importing the module ─────────────────────────
 _main_funcs = _extract_functions("main", [
-    "extract_report_text", "extract_search_findings"
+    "extract_search_findings"
 ])
-extract_report_text     = _main_funcs["extract_report_text"]
 extract_search_findings = _main_funcs["extract_search_findings"]
 
 # summarize.py has no heavy deps — import normally
@@ -104,71 +102,6 @@ SNR: 1.87
 Score: 82.3
 """
 
-
-class TestExtractReportText:
-
-    def test_plain_text_returns_success(self):
-        text, recovery = extract_report_text(SAMPLE_REPORT)
-        assert recovery == "success"
-        assert "=== CORRELATION DECAY REPORT ===" in text
-
-    def test_plain_text_returns_unchanged_content(self):
-        text, _ = extract_report_text(SAMPLE_REPORT)
-        assert "SNR: 1.87" in text
-
-    def test_report_buried_in_preamble(self):
-        raw = "Here is the output you requested:\n\n" + SAMPLE_REPORT
-        text, recovery = extract_report_text(raw)
-        assert "=== CORRELATION DECAY REPORT ===" in text
-        assert recovery == "fallback_regex"
-
-    def test_report_wrapped_in_json_string(self):
-        blob = json.dumps({"output": SAMPLE_REPORT})
-        text, recovery = extract_report_text(blob)
-        assert "=== CORRELATION DECAY REPORT ===" in text
-        # Regex fires before JSON parsing if the report header is findable in
-        # the raw string — both recovery types are valid here.
-        assert recovery in ("fallback_regex", "fallback_json_extraction")
-
-    def test_report_in_nested_json(self):
-        blob = json.dumps({"result": {"text": SAMPLE_REPORT}})
-        text, recovery = extract_report_text(blob)
-        assert "=== CORRELATION DECAY REPORT ===" in text
-
-    def test_no_report_returns_failure(self):
-        raw = "Something completely different with no report header."
-        text, recovery = extract_report_text(raw)
-        assert recovery == "failure"
-        assert text == raw.strip()
-
-    def test_strips_trailing_json_chars(self):
-        # Stripping only applies on the regex fallback path (not success).
-        raw = "prefix\n" + SAMPLE_REPORT + '"}}'
-        text, recovery = extract_report_text(raw)
-        if recovery == "fallback_regex":
-            assert not text.endswith('}}')
-
-    def test_escaped_newlines_in_json_unescaped(self):
-        escaped = SAMPLE_REPORT.replace("\n", "\\n")
-        raw = f"prefix {escaped}"
-        text, recovery = extract_report_text(raw)
-        assert recovery in ("fallback_regex", "fallback_json_extraction", "failure")
-        # If recovered, newlines should be real newlines
-        if recovery != "failure":
-            assert "\\n" not in text
-
-    def test_empty_string_returns_failure(self):
-        text, recovery = extract_report_text("")
-        assert recovery == "failure"
-
-    def test_whitespace_only_returns_failure(self):
-        _, recovery = extract_report_text("   \n\n  ")
-        assert recovery == "failure"
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# extract_search_findings
-# ══════════════════════════════════════════════════════════════════════════════
 
 class TestExtractSearchFindings:
 

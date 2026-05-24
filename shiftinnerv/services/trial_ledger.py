@@ -197,22 +197,45 @@ def parse_statistical_snapshot(verdict_text: str) -> dict:
         return None
 
     half_life = _find_float([
-        r"half.life[:\s=]+([0-9]+\.?[0-9]*)\s*d",
-        r"Half.Life[:\s=]+([0-9]+\.?[0-9]*)",
-        r"half.life\s+of\s+([0-9]+\.?[0-9]*)",
+        # "Half-life of spread mean reversion: 39.1 days"  — Scout format
+        r"half.life\s+of\s+spread[^:]*[:\s]+([0-9]+\.?[0-9]*)",
+        # "Half-life: 39.1d" / "Half-life: 39.1 days"
+        r"half.life[^:]*[:\s=]+([0-9]+\.?[0-9]*)\s*d",
+        # "Half-Life: 39.1"
+        r"half.life[^:]*[:\s=]+([0-9]+\.?[0-9]*)",
     ], verdict_text)
 
     snr = _find_float([
-        r"SNR[:\s=]+([0-9]+\.?[0-9]*)",
+        # "pair_score (SNR): 0.2861"  — Scout format
+        r"pair_score\s*\(SNR\)[:\s]+([0-9]+\.?[0-9]*)",
+        # "SNR pair score: 0.2861"  — Signal Math format
+        r"SNR\s+pair\s+score[:\s]+([0-9]+\.?[0-9]*)",
+        # "SNR: 0.2861"  — generic
+        r"\bSNR[:\s=]+([0-9]+\.?[0-9]*)",
         r"signal.to.noise[:\s=]+([0-9]+\.?[0-9]*)",
     ], verdict_text)
 
     trace_stat = _find_float([
-        r"trace\s+stat(?:istic)?[:\s=]+([0-9]+\.?[0-9]*)",
+        # "trace statistic (k=2): 19.4629"  — Scout multi-lag format
+        r"trace\s+stat(?:istic)?\s*(?:\([^)]*\))?[:\s=]+([0-9]+\.?[0-9]*)",
+        # "Conservative lag selected: k=2 (lowest trace = 19.4629)"
+        r"lowest\s+trace\s*=\s*([0-9]+\.?[0-9]*)",
+        # "Trace = 19.4629"  — legacy format
         r"Trace\s*=\s*([0-9]+\.?[0-9]*)",
+        # "Lag traces — k=1: 22.00  k=2: 19.46" — take the k=2 value
+        r"k=2[:\s]+([0-9]+\.?[0-9]*)",
     ], verdict_text)
 
     crit_95 = _find_float([
+        # "at 95% CI critical value: 15.4943"  — Scout format
+        r"95%\s*CI\s+critical\s+value[:\s]+([0-9]+\.?[0-9]*)",
+        # "95% CI critical value 15.4943"  — without colon
+        r"95%\s*CI\s+critical\s+value\s+([0-9]+\.?[0-9]*)",
+        # "passes at 95% CI critical value 15.4943"
+        r"passes\s+at\s+95%\s*CI\s+critical\s+value[:\s]+([0-9]+\.?[0-9]*)",
+        # "95% critical value: 15.4943" — Signal Math format
+        r"95%\s+critical\s+value[:\s]+([0-9]+\.?[0-9]*)",
+        # legacy: "crit 95%: 15.49"
         r"crit(?:ical)?\s*(?:value\s*)?95[%]?[:\s=]+([0-9]+\.?[0-9]*)",
         r"95%\s*CI[:\s=]+([0-9]+\.?[0-9]*)",
         r"c95[:\s=]+([0-9]+\.?[0-9]*)",
@@ -220,7 +243,8 @@ def parse_statistical_snapshot(verdict_text: str) -> dict:
     ], verdict_text)
 
     episodes = _find_float([
-        r"([0-9]+)\s+distinct\s+episodes",
+        # "2 distinct episode(s) found"  — Scout format (note: episode not episodes)
+        r"([0-9]+)\s+distinct\s+episode",
         r"episodes[:\s=]+([0-9]+)",
     ], verdict_text)
 
