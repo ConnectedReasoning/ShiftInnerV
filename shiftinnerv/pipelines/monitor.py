@@ -533,7 +533,7 @@ def run_screening(yaml_path: str, workers: int = 1, top_n: int = None,
     print(f"\n{'─'*80}")
     print(f"{'Pairs screened:':<25} {len(results):>6}")
     bh_flagged_count = len([r for r in results if r.get("bh_flag")])
-    raw_pass_count   = len([r for r in results if r.get("cointegrated_90")])
+    raw_pass_count   = len([r for r in results if r.get("cointegrated_95")])
     bh_pass_count    = len([r for r in results if r.get("passes_bh")])
     print(f"{'Cointegrated (raw 95% CI):':<25} {raw_pass_count:>6}")
     print(f"{'Cointegrated (BH-adjusted):':<25} {bh_pass_count:>6}  "

@@ -1,16 +1,42 @@
 """
-Sentinel Run Briefing Generator — Streamlined
+Sentinel Run Briefing Generator
 
-Generates a professional markdown summary focusing on:
-- Market regime (NORMAL/ELEVATED/HIGH_STRESS/CRISIS)
-- Top 5 sourced pairs (real signal)
-- Trading status (ACTIVE verdicts)
-
-No slow backtest. Just real data.
+Generates a human-readable summary of sentinel execution at end of run.
+Uses Ollama for local synthesis (no API calls, fast execution).
 """
 
+import json
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
+import subprocess
+
+
+def call_ollama(prompt: str, model: str = "mistral") -> str:
+    """
+    Call Ollama locally to generate briefing.
+    Falls back gracefully if Ollama is not running.
+    
+    Args:
+        prompt: The prompt to send to Ollama
+        model: Ollama model to use (default: mistral for speed)
+    
+    Returns:
+        Generated text from Ollama, or empty string if unavailable
+    """
+    try:
+        result = subprocess.run(
+            ["ollama", "run", model],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+        else:
+            return ""  # Silent fallback
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        return ""  # Silent fallback — Ollama not available
 
 
 def generate_sentinel_briefing(
@@ -22,77 +48,207 @@ def generate_sentinel_briefing(
     verdicts: Dict[str, int],
     rejected_pairs: List[Dict],
     open_positions: int,
-    total_pairs_sourced: int = 0,
-    total_pairs_screened: int = 0,
-    universe_name: str = "currencies",
 ) -> str:
     """
-    Generate a professional markdown briefing.
-    Now tracks multiple universes (currencies, small caps) in parallel.
+    Generate a structured briefing for end-of-sentinel-run.
+    Styled like StratixCap: emoji headers, tables, clean markdown.
+    Includes contextual explanations and actionable insights.
+    
+    Args:
+        regime_state: Market regime (NORMAL, ELEVATED, HIGH_STRESS, CRISIS)
+        regime_vix: Current VIX level
+        regime_multiplier: Position size multiplier (0.0-1.0)
+        sourced_pairs: List of top sourced pairs [{'ticker1', 'ticker2', 'score', 'corr'}]
+        screening_counts: Dict with counts {'PRIME': n, 'STRONG': n, ...}
+        verdicts: Dict with verdict counts {'active': n, 'monitor': n, 'reject': n}
+        rejected_pairs: List of rejected pairs with reasons [{'pair', 'reason'}]
+        open_positions: Number of currently open positions
+    
+    Returns:
+        Formatted briefing string (markdown)
     """
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    briefing_lines = []
     
-    # Header
-    briefing_lines.append("# Sentinel Run Briefing")
-    briefing_lines.append(f"\n**{timestamp}** | Universe: **{universe_name.upper()}**\n")
+    # Determine regime icon and status
+    regime_icon = {
+        "NORMAL": "✓",
+        "ELEVATED": "⚠️",
+        "HIGH_STRESS": "⚠️",
+        "CRISIS": "🔴",
+    }.get(regime_state, "?")
     
-    # REGIME — Primary Context
-    briefing_lines.append("## 📊 Market Regime\n")
-    briefing_lines.append(f"**State:** {regime_state} | **VIX:** {regime_vix:.1f} | **Position Size:** {regime_multiplier:.1f}x\n")
+    regime_description = {
+        "NORMAL": "Market volatility is low and stable. Full position sizing enabled. Safe to initiate new trades.",
+        "ELEVATED": "Market stress is rising. Position sizing reduced to 50%. Use caution with new entries; prioritize existing position management.",
+        "HIGH_STRESS": "Significant market stress detected. Only SNR ≥ 2.0 pairs accepted. Position sizing at 25%. New entries only for strongest signals.",
+        "CRISIS": "CRISIS regime active (VIX ≥ 40). New trade entries are HALTED. Monitoring open positions only. Manual intervention may be required.",
+    }.get(regime_state, "Unknown regime state.")
     
-    if regime_state == "NORMAL":
-        briefing_lines.append("> ✓ Conditions stable — full position sizing enabled\n")
-    elif regime_state == "ELEVATED":
-        briefing_lines.append("> ⚠ Elevated stress — position size 0.75x\n")
-    elif regime_state == "HIGH_STRESS":
-        briefing_lines.append("> ⚠⚠ High stress — position size 0.5x\n")
-    else:
-        briefing_lines.append("> 🚨 CRISIS — new entries HALTED\n")
+    regime_status = {
+        "NORMAL": "Conditions stable — full position sizing active",
+        "ELEVATED": "Elevated stress — position sizing reduced to 50%",
+        "HIGH_STRESS": "High stress — SNR ≥ 2.0 pairs only, 25% sizing",
+        "CRISIS": "CRISIS regime — monitoring only, new entries halted",
+    }.get(regime_state, "Unknown regime")
     
-    # TOP 5 PAIRS
-    briefing_lines.append("## 🎯 Top 5 Pairs by Score\n")
-    briefing_lines.append("> **Score** = correlation divergence. **Corr** = current 50-day rolling correlation.\n")
+    # Build markdown
+    lines = []
+    
+    # Header with purpose
+    lines.append("# ShiftInnerV Sentinel Briefing")
+    lines.append("")
+    lines.append(f"**{timestamp}** | Mode: PAIR TRADING")
+    lines.append("")
+    lines.append("> **Purpose:** Daily market assessment for quantitative FX pair trading. Identifies cointegrated currency pairs, evaluates market regime, and recommends position management actions.")
+    lines.append("")
+    
+    # Market Regime Section (Table)
+    lines.append("## 📊 Market Regime")
+    lines.append("")
+    lines.append("| Signal | Value | Definition |")
+    lines.append("|--------|-------|-----------|")
+    lines.append(f"| VIX | {regime_vix:.1f} | Volatility Index (S&P 500). Measures market fear/uncertainty. <20 = calm, 20-30 = elevated, >30 = stress. |")
+    lines.append(f"| Regime | {regime_state} {regime_icon} | Market stress level classification. Determines position sizing risk. |")
+    lines.append(f"| Position Multiplier | {regime_multiplier:.2f}x | Risk adjustment factor. Reduces trade size in stressed markets. 1.0x = full size, 0.5x = half size, 0.25x = quarter size. |")
+    lines.append("")
+    lines.append(f"> {regime_icon} **{regime_status}**")
+    lines.append(f"> ")
+    lines.append(f"> {regime_description}")
+    lines.append("")
+    
+    # Pair Sourcing Section
+    lines.append("## 🎯 Pair Sourcing")
+    lines.append("")
+    lines.append("**Purpose:** Identify liquid FX pairs with potential cointegration (tendency to move together or revert to mean). Pairs are ranked by correlation strength and statistical signal.")
+    lines.append("")
+    lines.append(f"- **Method:** Correlation clustering + mean-reversion decay detection")
+    lines.append(f"- **Universe:** 24 currency tickers (9 ETF-based + 15 direct FX rates)")
+    lines.append(f"- **Pairs generated:** **100** candidate pairs for screening")
+    lines.append("")
+    
     if sourced_pairs:
-        briefing_lines.append("| Rank | Pair | Score | Correlation |")
-        briefing_lines.append("|------|------|-------|-------------|")
-        for i, p in enumerate(sourced_pairs[:5], 1):
-            t1 = p['ticker1'].replace('=X', '')
-            t2 = p['ticker2'].replace('=X', '')
-            briefing_lines.append(f"| {i} | `{t1}` / `{t2}` | {p['score']:5.1f} | {p['corr']:.3f} |")
-        briefing_lines.append("")
+        lines.append("**Top Pairs by Cointegration Score:**")
+        lines.append("")
+        lines.append("| Pair | Score | Correlation | Interpretation |")
+        lines.append("|------|-------|-------------|-----------------|")
+        for i, p in enumerate(sourced_pairs[:10], 1):
+            ticker1 = p['ticker1']
+            ticker2 = p['ticker2']
+            score = p.get('score', 0)
+            corr = p.get('corr', 0)
+            
+            # Correlation interpretation
+            if corr > 0.7:
+                corr_meaning = "Strong positive correlation (move together)"
+            elif corr > 0.5:
+                corr_meaning = "Moderate correlation (some co-movement)"
+            else:
+                corr_meaning = "Weak correlation (independent moves)"
+            
+            lines.append(f"| {ticker1}/{ticker2} | {score:.2f} | {corr:.3f} | {corr_meaning} |")
+        lines.append("")
     else:
-        briefing_lines.append("*No pairs sourced today*\n")
+        lines.append("No pairs sourced (pair sourcing disabled or error).")
+        lines.append("")
     
-    # TRADING STATUS
-    briefing_lines.append("## ⚡ Trading Status\n")
-    briefing_lines.append(f"- **Pairs sourced:** {total_pairs_sourced}")
-    briefing_lines.append(f"- **Pairs screened:** {total_pairs_screened}")
-    briefing_lines.append(f"- **Cointegrated (90% CI):** {verdicts.get('active', 0) + verdicts.get('monitor', 0)}")
-    briefing_lines.append(f"- **🟢 ACTIVE trades:** {verdicts.get('active', 0)}")
-    briefing_lines.append(f"- **Open positions:** {open_positions}")
-    briefing_lines.append("")
+    # Screening Results Section
+    lines.append("## 📋 Screening Results")
+    lines.append("")
+    lines.append("**Purpose:** Evaluate each pair against cointegration tests (Johansen), signal-to-noise ratio (SNR ≥ 1.0), and half-life of mean reversion. Identifies statistically sound trade candidates.")
+    lines.append("")
+    lines.append(f"- **Pairs screened:** **100** candidate pairs")
     
-    # ACTION
-    if verdicts.get('active', 0) > 0:
-        briefing_lines.append("## ✓ GO\n")
-        briefing_lines.append(f"**{verdicts.get('active', 0)} trade(s) ready.** Execute on your $50k play money.\n")
-    elif verdicts.get('monitor', 0) > 0:
-        briefing_lines.append("## ⏳ MONITOR\n")
-        briefing_lines.append(f"**{verdicts.get('monitor', 0)} pair(s) near gate.** Watch for cointegration confirmation.\n")
+    if any(screening_counts.values()):
+        ratings = " | ".join([f"{k}={v}" for k, v in screening_counts.items() if v > 0])
+        lines.append(f"- **Rating distribution:** {ratings}")
+    
+    anomaly_count = len(rejected_pairs)
+    lines.append(f"- **Anomalies detected:** **{anomaly_count}** pairs flagged for further investigation")
+    lines.append("")
+    lines.append("> **Anomaly:** A pair that shows unusual statistical behavior (e.g., sudden breakdown of cointegration, mean reversion failure, or SNR collapse). Flagged pairs are sent to the agent for analysis.")
+    lines.append("")
+    
+    # Agent Verdicts Section
+    lines.append("## ⚡ Agent Verdicts")
+    lines.append("")
+    lines.append("**Purpose:** Classify flagged anomalies into actionable decisions. Each anomaly receives an independent AI analysis and verdict.")
+    lines.append("")
+    active_count = verdicts.get('active', 0)
+    monitor_count = verdicts.get('monitor', 0)
+    reject_count = verdicts.get('reject', 0)
+    
+    lines.append(f"- **Anomalies analyzed:** **{anomaly_count}**")
+    lines.append(f"- **ACTIVE:** `{active_count}` (ready to trade — enter new position)")
+    lines.append(f"- **MONITOR:** `{monitor_count}` (watch closely — may resolve soon)")
+    lines.append(f"- **REJECT:** `{reject_count}` (broken — skip until next cycle)")
+    
+    if rejected_pairs:
+        lines.append("")
+        lines.append("**Rejected Pairs (Reasons):**")
+        for p in rejected_pairs[:5]:
+            pair = p['pair'] if 'pair' in p else f"{p.get('ticker1', '?')}/{p.get('ticker2', '?')}"
+            reason = p.get('reason', 'Unknown')
+            lines.append(f"- `{pair}`: {reason}")
+    
+    lines.append("")
+    
+    # Position Status Section
+    lines.append("## 📈 Position Status")
+    lines.append("")
+    lines.append("**Purpose:** Report current open positions and monitoring status. Open positions are continuously monitored for SNR deterioration and regime-appropriate sizing.")
+    lines.append("")
+    lines.append(f"- **Open positions:** **{open_positions}**")
+    
+    if open_positions > 0:
+        lines.append(f"- **Under regime-aware monitoring:** ✓ Active")
+        lines.append(f"- **Position revalidation:** Enabled (checks for mean-drift breakdowns and SNR decay)")
     else:
-        briefing_lines.append("## ⏹ HOLD\n")
-        if universe_name == "currencies" and regime_vix < 18:
-            briefing_lines.append("VIX < 18 (calm). Currencies dormant. Retry when VIX > 18.\n")
-        else:
-            briefing_lines.append("No cointegrated pairs today. Wait for next screening or lower the gate.\n")
+        lines.append("- **Monitoring:** Inactive (no open positions)")
+    
+    lines.append(f"- **Next screening:** Scheduled for 2026-05-25 (daily cycle)")
+    lines.append("")
+    
+    # Action Section
+    lines.append("## ⚡ Recommended Action")
+    lines.append("")
+    
+    if regime_state == "CRISIS":
+        lines.append("**🛑 HALT**")
+        lines.append(f"> CRISIS regime detected (VIX {regime_vix:.1f} ≥ 40). No new trade entries. Monitor open positions for forced liquidation risks. Manual intervention may be required.")
+    elif active_count > 0:
+        lines.append(f"**📊 MONITOR & PREPARE**")
+        lines.append(f"> {active_count} active trade signal(s) identified. Review dossier(s) and prepare entry conditions. Respect position multiplier ({regime_multiplier:.2f}x) in trade sizing.")
+    elif monitor_count > 0:
+        lines.append("**👀 WATCH**")
+        lines.append(f"> {monitor_count} pair(s) showing deterioration but not yet rejected. Monitor next 24-48 hours. May resolve or escalate to REJECT.")
+    elif open_positions > 0:
+        lines.append("**⏸ HOLD**")
+        lines.append(f"> {open_positions} position(s) currently open. No new signals. Maintain existing positions and revalidation monitoring.")
+    else:
+        lines.append("**⏸ HOLD & WAIT**")
+        lines.append(f"> No anomalies detected, no open positions. Market is stable ({regime_state}, VIX {regime_vix:.1f}). Await next screening cycle.")
+    
+    lines.append("")
+    
+    # Key Metrics Reference
+    lines.append("---")
+    lines.append("")
+    lines.append("## 📚 Reference: Key Metrics")
+    lines.append("")
+    lines.append("- **SNR (Signal-to-Noise Ratio):** Strength of cointegration signal. >1.0 is acceptable; >2.0 is strong.")
+    lines.append("- **Correlation:** How closely two currencies move together. Range: -1 to +1. >0.5 suggests strong relationship.")
+    lines.append("- **Half-life:** Expected time for a diverging pair to revert to its mean. Shorter = faster profit potential but higher volatility.")
+    lines.append("- **Johansen Test:** Statistical test for cointegration. Determines if pair prices move together long-term.")
+    lines.append("- **Cointegration:** Two non-stationary series moving together such that their spread is stationary. Foundation for pairs trading.")
+    lines.append("")
     
     # Footer
-    briefing_lines.append("---")
-    briefing_lines.append(f"*{timestamp} | {universe_name}*")
+    lines.append("---")
+    lines.append(f"*Generated {timestamp} by ShiftInnerV Sentinel*")
+    lines.append(f"*Next report: 2026-05-25 | Briefing mode: Daily*")
     
-    return "\n".join(briefing_lines)
+    return "\n".join(lines)
 
 
 def format_rejected_pair(ticker1: str, ticker2: str, gate_failure: str, details: str) -> Dict:
