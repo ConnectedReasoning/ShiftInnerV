@@ -491,8 +491,11 @@ def source_pairs(
     returns_df = load_returns(tickers, data_dir, lookback_years)
     
     if len(returns_df.columns) < 10:
-        print(f"ERROR: Insufficient tickers with data ({len(returns_df.columns)} < 10)")
-        sys.exit(1)
+        n = len(returns_df.columns)
+        raise RuntimeError(
+            f"Insufficient tickers with data ({n} < 10). "
+            f"Check DATA_STORAGE_PATH and that CSV files exist for the universe tickers."
+        )
     
     print()
     

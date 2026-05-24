@@ -145,8 +145,9 @@ class CorrelationDecayTool(BaseTool):
             # Signal window:   remaining rows — used for all spread calculations
             #
             # NOTE: With lookback_years=1 (~252 rows total), the signal window will
-            # be only ~2 rows — too short for any reliable z-score. Prefer
-            # lookback_years=2 (signal ~254 rows) or lookback_years=3 (signal ~506 rows).
+            # be only ~2 rows — too short for any reliable z-score. The system default
+            # is now lookback_years=3 (~506 signal rows). Only override to 1 explicitly
+            # if you have a specific short-window reason; prefer 3 or 5.
             TRAIN_WINDOW = 250
             if len(log_prices) < TRAIN_WINDOW + 60:
                 return (

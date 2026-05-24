@@ -27,7 +27,7 @@ def build_tasks(pair: dict, agents: tuple) -> tuple:
     ticker1        = pair["ticker1"]
     ticker2        = pair["ticker2"]
     label          = pair["label"]
-    lookback_years = pair.get("lookback_years", 5)
+    lookback_years = pair.get("lookback_years", 3)
 
     # ── Task 1 — Run the math ─────────────────────────────────────────────────
     correlation_audit = Task(

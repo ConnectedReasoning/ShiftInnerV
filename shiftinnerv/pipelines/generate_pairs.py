@@ -39,7 +39,7 @@ def load_universe(universe_path: str) -> dict:
 
 
 def make_pair_block(t1: str, t2: str, label: str = "",
-                    lookback_years: int = 1) -> dict:
+                    lookback_years: int = 3) -> dict:
     return {
         "ticker1": t1,
         "ticker2": t2,
@@ -86,8 +86,8 @@ def main():
                         help="Cross-category pairs: all CAT1 vs all CAT2")
     parser.add_argument("--all",       action="store_true",
                         help="All possible pairs from universe (large)")
-    parser.add_argument("--lookback",  type=int, default=1, choices=[1, 3, 5],
-                        help="Lookback years for all pairs (default: 1)")
+    parser.add_argument("--lookback",  type=int, default=3, choices=[1, 3, 5],
+                        help="Lookback years for all pairs (default: 3)")
     parser.add_argument("--workers",   type=int, default=1,
                         help="Parallel workers for immediate screen (default: 1)")
     parser.add_argument("--seed",      type=int, default=None,

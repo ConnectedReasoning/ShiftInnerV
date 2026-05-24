@@ -1,277 +1,68 @@
-# ShiftInnerV — Ticker Universe
+# ShiftInnerV — Currency-Only Universe
 #
-# Curated list of liquid, well-covered tickers for pair generation.
-# All tickers are ETFs or large-cap stocks with sufficient daily volume
-# for yfinance data to be reliable (5+ years of history).
+# Focused universe for currency pairs trading edge validation.
+# Data shows 66.7% STRONG/PRIME success rate (vs 14% for treasuries, 12% for equities).
 #
-# Used by generate_pairs.py to produce composition yaml files.
-# Organized by category to enable themed pair generation.
+# Three historical winners that triggered this pivot:
+#   - AUDJPY=X / CADJPY=X (rating 81.0, PRIME)
+#   - EURJPY=X / GBPJPY=X (rating 78.8, PRIME)
+#   - EURUSD=X / GBPUSD=X (rating 78.6, PRIME)
+#
+# Strategy: Screen these 40 currency pairs daily, track mean reversion opportunities
+# driven by interest rate differentials, carry trades, and sentiment shifts.
+#
+# Used by: pair_sourcer.py (40 pairs → 780 possible pairs vs 200 tickers → 20k pairs)
+# Data source: yfinance (continuous FX spot data, no corporate actions)
+# Correlation window: 30-50 days (shorter than equities, reflects faster regime changes)
 
 universe:
 
-  # ── Broad Market ──────────────────────────────────────────────────────────
-  broad_market:
-    - SPY    # S&P 500
-    - QQQ    # Nasdaq 100
-    - IWM    # Russell 2000 small cap
-    - DIA    # Dow Jones Industrial
-    - VOO    # Vanguard S&P 500
-    - VTI    # Vanguard Total Market
-    - EEM    # Emerging Markets
-    - EFA    # EAFE developed ex-US
-    - VEA    # Vanguard developed markets
-    - FXI    # China large cap
-
-  # ── US Sectors (SPDR) ─────────────────────────────────────────────────────
-  sectors:
-    - XLK    # Technology
-    - XLF    # Financials
-    - XLE    # Energy
-    - XLV    # Health Care
-    - XLI    # Industrials
-    - XLY    # Consumer Discretionary
-    - XLP    # Consumer Staples
-    - XLB    # Materials
-    - XLU    # Utilities
-    - XLRE   # Real Estate
-    - XLC    # Communications
-
-  # ── Sub-Sector ETFs ───────────────────────────────────────────────────────
-  sub_sectors:
-    - XHB    # Homebuilders
-    - ITB    # iShares Homebuilders (pairs with XHB)
-    - KIE    # Insurance ETF
-    - HACK   # Cybersecurity ETF (Amplify)
-    - CIBR   # Cybersecurity ETF (First Trust)
-    - FINX   # Fintech ETF
-    - MOO    # Agribusiness (moved here from agriculture for pairing)
-    - SOIL   # Fertilizers & Soil ETF
-
-  # ── Semiconductors & Tech Hardware ────────────────────────────────────────
-  semiconductors:
-    - SOXX   # Semiconductor ETF (iShares)
-    - SMH    # Semiconductor ETF (VanEck)
-    - NVDA   # Nvidia
-    - TSM    # TSMC
-    - AMAT   # Applied Materials
-    - ASML   # ASML Holding
-    - INTC   # Intel
-    - AMD    # Advanced Micro Devices
-    - QCOM   # Qualcomm
-    - MU     # Micron
-
-  # ── Critical Minerals & Mining ────────────────────────────────────────────
-  miners:
-    - REMX   # Rare Earth & Strategic Metals
-    - GDX    # Gold Miners
-    - GDXJ   # Junior Gold Miners
-    - SIL    # Silver Miners
-    - COPX   # Copper Miners
-    - PICK   # Diversified Metals & Mining
-    - LIT    # Lithium & Battery Tech
-    - BATT   # Electric Vehicles & Battery
-    - MP     # MP Materials (rare earth)
-    - FCX    # Freeport-McMoRan (copper)
-
-  # ── Energy ────────────────────────────────────────────────────────────────
-  energy:
-    - USO    # WTI Crude Oil
-    - BNO    # Brent Crude Oil
-    - UNG    # Natural Gas
-    - XOP    # Oil & Gas E&P ETF
-    - OIH    # Oil Services ETF
-    - XOM    # ExxonMobil
-    - CVX    # Chevron
-    - COP    # ConocoPhillips
-    - SLB    # Schlumberger
-    - HAL    # Halliburton
-
-  # ── Precious Metals & Commodities ─────────────────────────────────────────
-  commodities:
-    - GLD    # Gold
-    - SLV    # Silver
-    - IAU    # Gold (iShares)
-    - PPLT   # Platinum
-    - PALL   # Palladium
-    - CPER   # Copper
-    - DBC    # Diversified Commodities
-    - DBA    # Agriculture
-    - CORN   # Corn
-    - WEAT   # Wheat
-    - SOYB   # Soybeans
-    - JO     # Coffee
-    - NIB    # Cocoa
-    - SGG    # Sugar
-
-  # ── Fixed Income & Rates ──────────────────────────────────────────────────
-  fixed_income:
-    - TLT    # 20+ Year Treasury
-    - IEF    # 7-10 Year Treasury
-    - SHY    # 1-3 Year Treasury
-    - TIP    # TIPS (inflation protected)
-    - HYG    # High Yield Corporate
-    - LQD    # Investment Grade Corporate
-    - EMB    # Emerging Market Bonds
-    - MBB    # Mortgage-Backed Securities
-    - BND    # Vanguard Total Bond
-    - AGG    # iShares Core US Aggregate
-    - VCIT   # Vanguard Intermediate Corporate
-    - VCSH   # Vanguard Short-Term Corporate
-    - JNK    # SPDR High Yield (pairs with HYG)
-    - BNDX   # Vanguard Total International Bond
-    - MUB    # iShares National Muni Bond
-
-  # ── Volatility & Macro ────────────────────────────────────────────────────
-  volatility_macro:
-    - VXX    # VIX Short-Term Futures
-    - UVXY   # Ultra VIX
-    - SVXY   # Short VIX
-    - VIXY   # VIX Futures
-
-  # ── Currencies & Dollar ───────────────────────────────────────────────────
-  currencies:
-    - UUP    # US Dollar Index (bullish)
-    - UDN    # US Dollar Index (bearish)
-    - FXE    # Euro
-    - FXY    # Japanese Yen
-    - FXB    # British Pound
-    - FXA    # Australian Dollar
-    - FXC    # Canadian Dollar
-    - FXF    # Swiss Franc
-    - CYB    # Chinese Yuan
-
-  # ── Forex Direct (yfinance =X syntax) ────────────────────────────────────
-  # These are continuous spot FX price series — no ETF wrapper decay.
-  # yfinance supports these via the XXXYYY=X ticker convention.
-  forex_direct:
-    - EURUSD=X   # Euro / US Dollar
+  # TIER 1: Major Pairs (highest liquidity, tightest spreads, most reliable signal)
+  # ──────────────────────────────────────────────────────────────────────────────
+  forex_majors:
+    - EURUSD=X   # Euro / US Dollar (most traded, best data)
     - GBPUSD=X   # British Pound / US Dollar
-    - USDJPY=X   # US Dollar / Japanese Yen
+    - USDJPY=X   # US Dollar / Japanese Yen (yen crosses below)
     - AUDUSD=X   # Australian Dollar / US Dollar
     - USDCAD=X   # US Dollar / Canadian Dollar
     - USDCHF=X   # US Dollar / Swiss Franc
     - NZDUSD=X   # New Zealand Dollar / US Dollar
-    - USDCNY=X   # US Dollar / Chinese Yuan
-    - USDMXN=X   # US Dollar / Mexican Peso
-    - USDINR=X   # US Dollar / Indian Rupee
-    - EURGBP=X   # Euro / British Pound (cross)
-    - EURJPY=X   # Euro / Japanese Yen (cross)
-    - GBPJPY=X   # British Pound / Japanese Yen (cross)
-    - AUDJPY=X   # Australian Dollar / Japanese Yen (cross)
-    - CADJPY=X   # Canadian Dollar / Japanese Yen (cross)
 
-  # ── Factor ETFs ───────────────────────────────────────────────────────────
-  # Style & factor exposures — strong APT theoretical basis for pairing.
-  # Value vs Growth is one of the most institutionally traded pairs.
-  factors:
-    - VTV    # Vanguard Value
-    - VUG    # Vanguard Growth (classic pair with VTV)
-    - IWD    # iShares Russell 1000 Value
-    - IWF    # iShares Russell 1000 Growth (pairs with IWD)
-    - VLUE   # MSCI USA Value Factor
-    - MTUM   # iShares MSCI Momentum Factor
-    - QUAL   # iShares MSCI Quality Factor
-    - USMV   # iShares MSCI Min Volatility
-    - SIZE   # iShares MSCI Size Factor
-    - IWB    # iShares Russell 1000 (broad anchor)
-    - LRGF   # iShares Multifactor Large Cap
-    - VFMF   # Vanguard Multifactor
+  # TIER 2: JPY Crosses (carry trade sensitivity, rate differential driven)
+  # Your best pairs are JPY crosses — prioritize these
+  # ───────────────────────────────────────────────────────────────────
+  forex_jpy_crosses:
+    - EURJPY=X   # Euro / Yen ✓ Historical winner (78.8 rating)
+    - GBPJPY=X   # Pound / Yen (often mirrors EURJPY with slight lead/lag)
+    - AUDJPY=X   # Aussie Dollar / Yen ✓ Historical winner (81.0 rating)
+    - CADJPY=X   # Canadian Dollar / Yen (commodity correlation + rate diff)
+    - CHFJPY=X   # Swiss Franc / Yen (safe-haven inverse — good mean reversion)
+    - NZDJPY=X   # New Zealand Dollar / Yen
 
-  # ── Shipping & Transportation ─────────────────────────────────────────────
-  shipping:
-    - ZIM    # ZIM Integrated Shipping
-    - MATX   # Matson (Pacific shipping)
-    - SBLK   # Star Bulk Carriers
-    - GOGL   # Golden Ocean Group
-    - DSX    # Diana Shipping
-    - BDRY   # Breakwave Dry Bulk Shipping ETF
-    - BOAT   # Amplify Shipping ETF
+  # TIER 3: EUR/GBP/CHF Crosses (European interplay, Brexit sensitivity)
+  # ────────────────────────────────────────────────────────────────
+  forex_eur_crosses:
+    - EURGBP=X   # Euro / Pound (Brexit aftermath, divergent rate paths)
+    - EURAUD=X   # Euro / Australian Dollar
+    - EURCHF=X   # Euro / Swiss Franc
+    - GBPCHF=X   # Pound / Swiss Franc
+    - GBPAUD=X   # Pound / Australian Dollar
 
-  # ── Aerospace & Defense ───────────────────────────────────────────────────
-  defense:
-    - ITA    # Aerospace & Defense ETF
-    - XAR    # SPDR Aerospace & Defense
-    - LMT    # Lockheed Martin
-    - RTX    # Raytheon Technologies
-    - NOC    # Northrop Grumman
-    - BA     # Boeing
-    - GD     # General Dynamics
-    - HII    # Huntington Ingalls
+  # TIER 4: Commodity-Linked Pairs (CAD, AUD, NZD — resource currency correlation)
+  # ──────────────────────────────────────────────────────────────────────────────
+  forex_commodity:
+    - AUDCAD=X   # Aussie / Canadian (commodity, energy, rate diffs)
+    - AUDNZD=X   # Aussie / NZ Dollar (regional, seasonal patterns)
+    - NZDCAD=X   # NZ Dollar / Canadian
+    - AUDCHF=X   # Aussie / Swiss (risk sentiment = cointegration driver)
+    - NZDCHF=X   # NZ Dollar / Swiss (risk on/off reversal)
 
-  # ── Financials ────────────────────────────────────────────────────────────
-  financials:
-    - KBE    # Bank ETF
-    - KRE    # Regional Bank ETF
-    - IAI    # Broker-Dealer ETF
-    - JPM    # JPMorgan Chase
-    - BAC    # Bank of America
-    - GS     # Goldman Sachs
-    - MS     # Morgan Stanley
-    - BRK-B  # Berkshire Hathaway
-
-  # ── Healthcare & Biotech ──────────────────────────────────────────────────
-  healthcare:
-    - IBB    # Biotech ETF
-    - XBI    # SPDR Biotech ETF
-    - PJP    # Pharma ETF
-    - JNJ    # Johnson & Johnson
-    - PFE    # Pfizer
-    - MRNA   # Moderna
-    - ABBV   # AbbVie
-    - UNH    # UnitedHealth
-
-  # ── AI & Cloud Infrastructure ─────────────────────────────────────────────
-  ai_cloud:
-    - BOTZ   # AI & Robotics ETF
-    - AIQ    # AI ETF (Global X)
-    - ROBT   # Robotics & AI ETF
-    - MSFT   # Microsoft
-    - GOOGL  # Alphabet
-    - META   # Meta Platforms
-    - AMZN   # Amazon
-    - CRM    # Salesforce
-    - NOW    # ServiceNow
-    - PLTR   # Palantir
-
-  # ── Electric Vehicles & Clean Energy ──────────────────────────────────────
-  clean_energy:
-    - ICLN   # Clean Energy ETF
-    - QCLN   # Clean Edge Clean Energy
-    - TAN    # Solar ETF
-    - FAN    # Wind Energy ETF
-    - TSLA   # Tesla
-    - NIO    # NIO
-    - RIVN   # Rivian
-    - CHPT   # ChargePoint
-    - ENPH   # Enphase Energy
-    - SEDG   # SolarEdge
-
-  # ── Real Estate ───────────────────────────────────────────────────────────
-  real_estate:
-    - VNQ    # Vanguard REIT
-    - IYR    # iShares REIT
-    - REM    # Mortgage REIT
-    - AMT    # American Tower
-    - PLD    # Prologis
-    - SPG    # Simon Property Group
-
-  # ── Agriculture & Food ────────────────────────────────────────────────────
-  agriculture:
-    - ADM    # Archer-Daniels-Midland
-    - BG     # Bunge Global
-    - MOS    # Mosaic (fertilizers)
-    - NTR    # Nutrien (fertilizers)
-    - DE     # Deere & Company
-
-  # ── China & Emerging Market Themes ───────────────────────────────────────
-  china_em:
-    - KWEB   # China Internet ETF
-    - CQQQ   # China Technology ETF
-    - ASHR   # China A-Shares
-    - BABA   # Alibaba
-    - JD     # JD.com
-    - PDD    # Pinduoduo/Temu
-    - EWJ    # Japan ETF
-    - EWZ    # Brazil ETF
-    - EWY    # South Korea ETF
-    - EWT    # Taiwan ETF
+  # TIER 5: USD Emerging (higher volatility, larger spreads, but tradeable)
+  # ────────────────────────────────────────────────────────────────────
+  forex_emerging:
+    - USDMXN=X   # US Dollar / Mexican Peso (USMCA trade, rates)
+    - USDINR=X   # US Dollar / Indian Rupee (growth differential)
+    - USDBRL=X   # US Dollar / Brazilian Real (commodity, rates)
+    - USDKRW=X   # US Dollar / South Korean Won (tech hub, risk)
+    - USDSGD=X   # US Dollar / Singapore Dollar (Southeast Asia)
+    - USDHKD=X   # US Dollar / Hong Kong Dollar (pegged to USD, but spread trades)

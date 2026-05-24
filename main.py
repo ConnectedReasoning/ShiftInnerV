@@ -358,7 +358,7 @@ if __name__ == "__main__":
         print(f"  [{i:>3}/{n}]  ...    {ticker1}/{ticker2}  {label}", end="", flush=True)
         log.info(f"START {ticker1}/{ticker2}  ({label})")
 
-        lookback_years = pair.get("lookback_years", 5)
+        lookback_years = pair.get("lookback_years", 3)
         n_pairs = len(pairs)
         quant_scout, signal_mathematician = make_crew(
             ticker1, ticker2,

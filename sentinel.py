@@ -427,8 +427,10 @@ class PairSourcingStrategy(Strategy):
             return True
         
         except Exception as e:
-            log.error(f"[pair_sourcing] FAIL — {e}")
+            import traceback
+            log.error(f"[pair_sourcing] FAIL — {e}\n{traceback.format_exc()}")
             print(f"  ✗ Pair sourcing failed: {e}")
+            print(f"    Reason: {type(e).__name__}: {e}")
             print(f"    Continuing without sourced composition")
             return True  # Non-fatal
 
@@ -446,10 +448,16 @@ class MonitorStrategy(Strategy):
     
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         if ctx.sourced_composition_path:
-            log.info(f"[monitor] Screening sourced composition: {ctx.sourced_composition_path}")
+            # Run anomaly detection (correlation decay) against the compositions dir.
+            # The sourced YAML lives in COMPOSITIONS_DIR, so the default monitor path
+            # will pick it up, detect correlation anomalies, and write anomaly YAMLs
+            # for the AnomalyProcessingStrategy to consume.
+            # NOTE: --screen is a diagnostic tool only — it scores but does NOT write
+            # anomaly YAMLs and therefore produces nothing for the agent pipeline.
+            log.info(f"[monitor] Running anomaly detection on compositions dir (sourced: {ctx.sourced_composition_path})")
             print(f"\n── Monitor (Sourced Pairs) ──────────────────────────────────────")
             ok = run_subprocess(
-                [sys.executable, MONITOR_PY, "--screen", ctx.sourced_composition_path, "--workers", "10"],
+                [sys.executable, MONITOR_PY, "--compositions", COMPOSITIONS_DIR, "--workers", "10"],
                 "monitor.py (sourced pairs)",
                 log
             )
@@ -678,7 +686,7 @@ class BriefingStrategy(Strategy):
                         for line in lines:
                             if line.startswith('#') and '/' in line and 'score=' in line:
                                 match = re.search(
-                                    r'#\s+(\w+-?\w*)\s+/\s+(\w+-?\w*)\s+score=([\d.]+)\s+corr=([\d.]+)',
+                                    r'#\s+([\w.-]+)\s+/\s+([\w.-]+)\s+score=([\d.]+)\s+corr=([\d.]+)',
                                     line
                                 )
                                 if match:
