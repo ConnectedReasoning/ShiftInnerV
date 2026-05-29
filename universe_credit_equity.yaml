@@ -1,0 +1,74 @@
+# ShiftInnerV — Credit/Equity Universe
+#
+# Capital structure arbitrage: corporate bonds vs their equity counterparts.
+# When credit spreads and equity prices diverge, one market is mispricing
+# default risk relative to the other. That gap tends to close.
+#
+# Core thesis:
+#   HYG/IWM  — High yield bonds and small caps borrow from the same pool.
+#              Small caps are the largest HY issuers. When HY spreads blow out
+#              but equities hold, or vice versa, that's a capital structure
+#              dislocation. Half-lives tend to be 15-40 days.
+#
+#   LQD/SPY  — Investment grade credit vs large cap equity. IG spreads widen
+#              before equity sells off in credit-led risk-off events (2020,
+#              late 2018). The reversion after a spread shock is the trade.
+#
+#   JNK/IWM  — Near-duplicate of HYG/IWM but JNK has slightly different
+#              sector composition (more energy). Useful as a confirmation pair.
+#
+#   KBE/LQD  — Bank equity vs IG corporate bonds. Banks profit from the spread
+#              between funding costs and lending rates. When bank equity
+#              diverges from IG credit conditions, NIM expectations are
+#              repricing. Classic pre-earnings signal.
+#
+#   XLF/HYG  — Broad financials vs high yield. Financials hold HY paper on
+#              their balance sheets. Divergence flags mark-to-market stress
+#              before it shows up in earnings.
+#
+#   HYG/JNK  — Same instrument, different issuer (iShares vs SPDR).
+#              Spread between them is a pure liquidity/flow signal.
+#              Very tight under normal conditions; widens on redemption stress.
+#
+# Universe design:
+#   - 10 tickers → ~15 correlated pairs after clustering
+#   - lookback_years: 2 — captures post-2023 credit cycle without zero-rate noise
+#   - Gate 6 factor proxy: SPY appropriate for all pairs here
+#   - Expected half-lives: 15-45 days (faster than Treasury pairs)
+#   - SNR tends to be higher than FX — structural tether is more durable
+#
+# Run with:
+#   python sentinel.py --universe universe_credit_equity.yaml
+
+lookback_years: 2
+
+universe:
+
+  # High Yield Corporate Bonds
+  # HYG and JNK track the same index with minor differences.
+  # Both included so the system can detect flow divergence between them.
+  high_yield:
+    - HYG       # iShares iBoxx High Yield Corporate (most liquid HY ETF)
+    - JNK       # SPDR Bloomberg High Yield (slightly different sector weights)
+    - HYS       # PIMCO 0-5 Year High Yield (short duration — rate-insensitive)
+
+  # Investment Grade Corporate Bonds
+  # LQD is the canonical IG proxy. VCSH adds short-duration IG exposure.
+  investment_grade:
+    - LQD       # iShares iBoxx Investment Grade Corporate
+    - VCSH      # Vanguard Short-Term Corporate Bond (duration hedge)
+
+  # Equity Indexes — the other side of the capital structure trade
+  # IWM is the natural HY equity counterpart (small caps = HY borrowers).
+  # SPY and QQQ for the IG/large-cap relationship.
+  equity_indexes:
+    - IWM       # Russell 2000 (small cap — primary HY equity counterpart)
+    - SPY       # S&P 500 (large cap — LQD/IG counterpart)
+    - QQQ       # Nasdaq 100 (tech-heavy, IG-funded — LQD relationship)
+
+  # Financial Sector Equity
+  # Banks hold credit on their books. KBE and XLF diverge from credit
+  # conditions when NIM expectations shift or credit losses loom.
+  financials:
+    - KBE       # S&P Bank ETF (pure banks — NIM and credit loss sensitivity)
+    - XLF       # Financials broad (banks + insurance + asset mgmt)

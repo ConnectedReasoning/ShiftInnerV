@@ -98,6 +98,7 @@ class SentinelContext:
     # Pair sourcing
     sourced_composition_path: str | None = None
     universe_path: str | None = None   # set from --universe arg; None = default universe.yaml
+    universe_name: str = "FX"          # human-readable name derived from universe filename
     
     # Monitor results
     monitor_success: bool = False
@@ -772,6 +773,7 @@ class BriefingStrategy(Strategy):
                     verdicts=ctx.verdicts,
                     rejected_pairs=ctx.rejected_pairs,
                     open_positions=ctx.open_positions_count,
+                    universe_name=ctx.universe_name,
                 )
                 
                 # Print to console
@@ -937,6 +939,7 @@ def main():
         ctx = SentinelContext(
             promoted_flag=args.promoted,
             universe_path=_universe_path,
+            universe_name=_universe_stem.replace("_", " ").title() if args.universe else "FX Currencies",
         )
 
         # ── Build and run strategy chain ──────────────────────────────────────

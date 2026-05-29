@@ -48,6 +48,7 @@ def generate_sentinel_briefing(
     verdicts: Dict[str, int],
     rejected_pairs: List[Dict],
     open_positions: int,
+    universe_name: str = "FX Currencies",
 ) -> str:
     """
     Generate a structured briefing for end-of-sentinel-run.
@@ -98,7 +99,7 @@ def generate_sentinel_briefing(
     # Header with purpose
     lines.append("# ShiftInnerV Sentinel Briefing")
     lines.append("")
-    lines.append(f"**{timestamp}** | Mode: PAIR TRADING")
+    lines.append(f"**{timestamp}** | Universe: {universe_name}")
     lines.append("")
     lines.append("> **Purpose:** Daily market assessment for quantitative FX pair trading. Identifies cointegrated currency pairs, evaluates market regime, and recommends position management actions.")
     lines.append("")
@@ -123,7 +124,7 @@ def generate_sentinel_briefing(
     lines.append("**Purpose:** Identify liquid FX pairs with potential cointegration (tendency to move together or revert to mean). Pairs are ranked by correlation strength and statistical signal.")
     lines.append("")
     lines.append(f"- **Method:** Correlation clustering + mean-reversion decay detection")
-    lines.append(f"- **Universe:** 24 currency tickers (9 ETF-based + 15 direct FX rates)")
+    lines.append(f"- **Universe:** {universe_name}")
     lines.append(f"- **Pairs generated:** **100** candidate pairs for screening")
     lines.append("")
     
@@ -206,7 +207,9 @@ def generate_sentinel_briefing(
     else:
         lines.append("- **Monitoring:** Inactive (no open positions)")
     
-    lines.append(f"- **Next screening:** Scheduled for 2026-05-25 (daily cycle)")
+    from datetime import timedelta
+    next_run = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    lines.append(f"- **Next screening:** Scheduled for {next_run} (daily cycle)")
     lines.append("")
     
     # Action Section
@@ -246,7 +249,7 @@ def generate_sentinel_briefing(
     # Footer
     lines.append("---")
     lines.append(f"*Generated {timestamp} by ShiftInnerV Sentinel*")
-    lines.append(f"*Next report: 2026-05-25 | Briefing mode: Daily*")
+    lines.append(f"*Next report: {next_run} | Universe: {universe_name}*")
 
     # Dashboard link
     dashboard_link = "http://localhost:8766"
