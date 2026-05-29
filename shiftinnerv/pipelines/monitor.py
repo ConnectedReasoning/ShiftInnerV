@@ -565,7 +565,25 @@ def run_screening(yaml_path: str, workers: int = 1, top_n: int = None,
 
 # ── Monitoring pass ───────────────────────────────────────────────────────────
 
-def run_monitor(compositions_dir: str, verbose: bool = True, workers: int = 1):
+def run_monitor(compositions_dir: str, verbose: bool = True, workers: int = 1,
+                min_score: float = None):
+    """
+    Screen all composition yamls in compositions_dir.
+
+    Anomaly detection (always active):
+        Flag pairs where current_corr < rolling_mean - 2*std_corr.
+
+    Score-based signal detection (active when min_score is set):
+        Also flag pairs whose composite score >= min_score as candidate
+        signals for the agent pipeline.  Use this for sourced compositions
+        so high-quality cointegrated pairs reach main.py even when no
+        correlation-decay episode is currently active.
+
+    min_score : float or None
+        When set, pairs with score >= min_score are written as anomaly yamls
+        in addition to correlation-decay anomalies.  Recommended: 45 (SOLID)
+        for FX universes.  Pass None (default) for legacy behaviour.
+    """
     yaml_files = sorted(glob.glob(os.path.join(compositions_dir, "*.yaml")))
     if not yaml_files:
         print(f"No yaml files in {compositions_dir}")
@@ -633,10 +651,41 @@ def run_monitor(compositions_dir: str, verbose: bool = True, workers: int = 1):
             log_anomaly(result)
             flagged.append(result)
 
-    print(f"\n  Flagged: {len(flagged)} anomaly(ies)")
+    print(f"\n  Flagged: {len(flagged)} anomaly(ies) (correlation-decay)")
+
+    # ── Score-based signal detection ─────────────────────────────────────────
+    # When min_score is set (e.g. for sourced compositions), also flag pairs
+    # whose composite score >= min_score.  These are POSITIVE cointegration
+    # signals rather than decay anomalies — they let the agent pipeline
+    # evaluate high-quality pairs even under normal market conditions.
+    # Pairs already in the decay-flagged list are skipped to avoid duplicates.
+    scored_signals = []
+    if min_score is not None:
+        decay_keys = {(r["ticker1"], r["ticker2"]) for r in flagged}
+        for result in results:
+            if "error" in result:
+                continue
+            key = (result["ticker1"], result["ticker2"])
+            if key in decay_keys:
+                continue
+            score = result.get("score", 0)
+            if score >= min_score:
+                scored_signals.append(result)
+
+        if scored_signals:
+            rating_counts = {}
+            for r in scored_signals:
+                lbl = r.get("rating", "?")
+                rating_counts[lbl] = rating_counts.get(lbl, 0) + 1
+            dist_str = "  ".join(f"{k}={v}" for k, v in rating_counts.items())
+            print(f"  Score-signals (≥{min_score:.0f}): {len(scored_signals)}  [{dist_str}]")
+            write_anomaly_yaml(scored_signals, compositions_dir)
+        else:
+            print(f"  Score-signals (≥{min_score:.0f}): 0")
+
     if flagged:
         write_anomaly_yaml(flagged, compositions_dir)
-    return flagged
+    return flagged + scored_signals
 
 
 def print_summary():
@@ -678,10 +727,16 @@ def main():
                         help="Show only top N results in --screen mode")
     parser.add_argument("--filter",       type=str, default=None,
                         help="Filter: prime|strong|solid|watch (score bands)")
-    parser.add_argument("--min-score",    type=float, default=None,
-                        help="Minimum score threshold (overrides --filter)")
     parser.add_argument("--show-suspicious", action="store_true",
                         help="Include pairs with suspicious SNR (>1000)")
+    parser.add_argument("--min-score",       type=float, default=None,
+                        help=(
+                            "Score threshold for signal detection in sourced compositions. "
+                            "Pairs scoring >= this value are written as anomaly yamls "
+                            "(in addition to correlation-decay anomalies). "
+                            "Recommended: 45 (SOLID) for FX universes. "
+                            "Default: None (legacy behaviour — decay anomalies only)."
+                        ))
     args = parser.parse_args()
 
     init_db()
@@ -714,13 +769,13 @@ def main():
         print(f"Anomaly log: {db_path}")
         while True:
             run_monitor(compositions_dir, verbose=not args.quiet,
-                        workers=args.workers)
+                        workers=args.workers, min_score=args.min_score)
             print(f"  Next run in {args.interval // 60}m — "
                   f"{datetime.now().strftime('%H:%M')}")
             time.sleep(args.interval)
     else:
         run_monitor(compositions_dir, verbose=not args.quiet,
-                    workers=args.workers)
+                    workers=args.workers, min_score=args.min_score)
 
 
 if __name__ == "__main__":

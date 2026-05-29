@@ -247,7 +247,11 @@ def generate_sentinel_briefing(
     lines.append("---")
     lines.append(f"*Generated {timestamp} by ShiftInnerV Sentinel*")
     lines.append(f"*Next report: 2026-05-25 | Briefing mode: Daily*")
-    
+
+    # Dashboard link
+    dashboard_link = "http://localhost:8766"
+    lines.append(f"\n---\n\n📊 **Portfolio Dashboard**: [{dashboard_link}]({dashboard_link})")
+
     return "\n".join(lines)
 
 

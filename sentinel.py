@@ -452,12 +452,23 @@ class MonitorStrategy(Strategy):
             # The sourced YAML lives in COMPOSITIONS_DIR, so the default monitor path
             # will pick it up, detect correlation anomalies, and write anomaly YAMLs
             # for the AnomalyProcessingStrategy to consume.
+            # --min-score 45 additionally flags SOLID/STRONG/PRIME pairs as signals
+            # so the gate evaluator pipeline runs even when no decay episode is active.
             # NOTE: --screen is a diagnostic tool only — it scores but does NOT write
             # anomaly YAMLs and therefore produces nothing for the agent pipeline.
             log.info(f"[monitor] Running anomaly detection on compositions dir (sourced: {ctx.sourced_composition_path})")
             print(f"\n── Monitor (Sourced Pairs) ──────────────────────────────────────")
+
+            # MIN_SCORE_FOR_SIGNAL: pairs scoring >= this are forwarded to the agent.
+            # 45 = SOLID tier — meaningful cointegration with acceptable half-life
+            # and SNR.  Env-var override available for tuning without code changes.
+            min_score_signal = float(os.getenv("MIN_SCORE_FOR_SIGNAL", "45"))
+
             ok = run_subprocess(
-                [sys.executable, MONITOR_PY, "--compositions", COMPOSITIONS_DIR, "--workers", "10"],
+                [sys.executable, MONITOR_PY,
+                 "--compositions", COMPOSITIONS_DIR,
+                 "--workers", "10",
+                 "--min-score", str(min_score_signal)],
                 "monitor.py (sourced pairs)",
                 log
             )
@@ -683,10 +694,11 @@ class BriefingStrategy(Strategy):
                         lines = f.readlines()
                         
                         # Extract top 5 pairs with scores from header comments
+                        # Ticker pattern includes '=' for FX tickers like EURUSD=X
                         for line in lines:
                             if line.startswith('#') and '/' in line and 'score=' in line:
                                 match = re.search(
-                                    r'#\s+([\w.-]+)\s+/\s+([\w.-]+)\s+score=([\d.]+)\s+corr=([\d.]+)',
+                                    r'#\s+([\w.=-]+)\s+/\s+([\w.=-]+)\s+score=([\d.]+)\s+corr=([\d.]+)',
                                     line
                                 )
                                 if match:

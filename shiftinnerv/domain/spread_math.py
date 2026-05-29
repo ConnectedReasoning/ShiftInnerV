@@ -100,12 +100,24 @@ def compute_snr(log_p1: pd.Series, log_p2: pd.Series) -> float:
 
 
 def run_johansen(log_prices: pd.DataFrame):
+    """
+    Run Johansen trace test at k=1, 2, 3 and return the CONSERVATIVE result
+    (lowest trace stat across all lags).  This matches the CorrelationDecayTool
+    in correlation.py so screener scores and gate evaluator verdicts are
+    consistent — a pair that scores PRIME here will also pass Gate 1 in main.py.
+    Critical values are lag-invariant (same cvt table for all k).
+    """
     try:
         from statsmodels.tsa.vector_ar.vecm import coint_johansen
-        r = coint_johansen(log_prices, det_order=0, k_ar_diff=1)
-        trace = r.lr1[0]
-        c90   = r.cvt[0, 0]
-        c95   = r.cvt[0, 1]
+        best = None
+        for k in [1, 2, 3]:
+            r = coint_johansen(log_prices, det_order=0, k_ar_diff=k)
+            trace = r.lr1[0]
+            if best is None or trace < best[0]:
+                best = (trace, r)
+        trace, r = best
+        c90 = r.cvt[0, 0]
+        c95 = r.cvt[0, 1]
         return trace > c90, trace > c95, trace, c90, c95
     except Exception:
         return None, None, None, None, None
@@ -330,8 +342,12 @@ def compute_johansen_trend(log_prices: pd.DataFrame,
         sub = log_prices.iloc[-w:]
         try:
             from statsmodels.tsa.vector_ar.vecm import coint_johansen
-            r = coint_johansen(sub, det_order=0, k_ar_diff=1)
-            stats.append((w, r.lr1[0]))
+            # Conservative: take minimum trace across k=1,2,3 (matches run_johansen)
+            traces = []
+            for k in [1, 2, 3]:
+                r = coint_johansen(sub, det_order=0, k_ar_diff=k)
+                traces.append(r.lr1[0])
+            stats.append((w, min(traces)))
         except Exception:
             continue
 
