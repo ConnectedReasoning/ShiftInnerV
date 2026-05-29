@@ -132,12 +132,28 @@ def _build_tier3(ticker1: str, ticker2: str) -> str:
             headlines = []
 
         for h in headlines:
-            source  = h.get("source", "")
-            pub     = h.get("published_utc", "")
+            source   = h.get("source", "")
+            pub      = h.get("published_utc", "")
             headline = h.get("headline", "")
+            sentiment = h.get("sentiment", "")
+            score     = h.get("sentiment_score", None)
+
             source_tag = f" — {source}" if source else ""
             pub_tag    = f", {pub}"      if pub    else ""
-            all_lines.append(f"  [{ticker.upper()}] {headline}{source_tag}{pub_tag}")
+
+            # Append sentiment label when available (Alpha Vantage)
+            if sentiment and sentiment != "Neutral":
+                sentiment_tag = f"  [{sentiment}]"
+            elif score is not None and abs(score) >= 0.15:
+                # show score if label is neutral but score is non-trivial
+                direction = "▲" if score > 0 else "▼"
+                sentiment_tag = f"  [{direction}{abs(score):.2f}]"
+            else:
+                sentiment_tag = ""
+
+            all_lines.append(
+                f"  [{ticker.upper()}] {headline}{source_tag}{pub_tag}{sentiment_tag}"
+            )
 
     if not all_lines:
         return ""

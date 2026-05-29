@@ -40,7 +40,7 @@ import sqlite3
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -97,6 +97,7 @@ class SentinelContext:
     
     # Pair sourcing
     sourced_composition_path: str | None = None
+    universe_path: str | None = None   # set from --universe arg; None = default universe.yaml
     
     # Monitor results
     monitor_success: bool = False
@@ -388,10 +389,10 @@ class PairSourcingStrategy(Strategy):
         
         print("\n── Intelligent Pair Sourcing ────────────────────────────────────")
         
-        universe_path = os.path.join(PROJECT_DIR, "universe.yaml")
+        universe_path = ctx.universe_path or os.path.join(PROJECT_DIR, "universe.yaml")
         if not os.path.exists(universe_path):
-            log.warning(f"[pair_sourcing] universe.yaml not found: {universe_path}")
-            print("  universe.yaml not found — skipping pair sourcing")
+            log.warning(f"[pair_sourcing] universe file not found: {universe_path}")
+            print("  universe file not found — skipping pair sourcing")
             return True
         
         output_path = os.path.join(
@@ -410,13 +411,20 @@ class PairSourcingStrategy(Strategy):
         
         log.info("[pair_sourcing] START")
         print("  Generating intelligent pairs (correlation clustering + decay detection)...")
-        
+
+        # Load universe config for universe-specific parameters (e.g. lookback_years)
+        try:
+            with open(universe_path) as _uf:
+                _universe_cfg = yaml.safe_load(_uf) or {}
+        except Exception:
+            _universe_cfg = {}
+
         try:
             source_pairs(
                 universe_path=universe_path,
                 output_path=output_path,
                 top_n=100,
-                lookback_years=3,
+                lookback_years=_universe_cfg.get("lookback_years", 3),
                 min_correlation=0.3,
                 n_clusters=15,
                 data_dir=DATA_DIR,
@@ -460,9 +468,15 @@ class MonitorStrategy(Strategy):
             print(f"\n── Monitor (Sourced Pairs) ──────────────────────────────────────")
 
             # MIN_SCORE_FOR_SIGNAL: pairs scoring >= this are forwarded to the agent.
-            # 45 = SOLID tier — meaningful cointegration with acceptable half-life
-            # and SNR.  Env-var override available for tuning without code changes.
-            min_score_signal = float(os.getenv("MIN_SCORE_FOR_SIGNAL", "45"))
+            # Default 25 — deliberately permissive for research/candidate surfacing.
+            # Raise to 45 (SOLID) or 60 (STRONG) for production capital deployment.
+            # Override: export MIN_SCORE_FOR_SIGNAL=45
+            #
+            # Research mode env vars (set in ~/.shiftinnerv_env or shell):
+            #   JOHANSEN_LAG_STRATEGY=standard  (k=1 only, more passes)
+            #   JOHANSEN_DET_ORDER=best          (try det_order 0 and 1, use better)
+            #   GATE1_CI_OVERRIDE=90             (90% CI instead of 95%)
+            min_score_signal = float(os.getenv("MIN_SCORE_FOR_SIGNAL", "25"))
 
             ok = run_subprocess(
                 [sys.executable, MONITOR_PY,
@@ -556,23 +570,43 @@ class AnomalyProcessingStrategy(Strategy):
     """
     Load and process new anomaly yamls through main.py.
     Tracks which anomalies have been seen.
+
+    By default only processes anomaly YAMLs generated TODAY, which keeps
+    daily runs fast (3-4 pairs ~2-3 min) regardless of stale file accumulation.
+
+    Override with env var:
+        ANOMALY_REPROCESS_DAYS=3   — process files from the last N days
+        ANOMALY_REPROCESS_DAYS=0   — process ALL files (legacy behaviour)
     """
-    
+
     def name(self) -> str:
         return "Anomaly Processing"
-    
+
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         print("\n── Anomaly Processing ──────────────────────────────────────────")
-        
+
         ctx.seen_anomalies = load_seen()
         all_yaml = sorted(Path(ANOMALY_DIR).glob("anomaly_*.yaml"))
-        
+
+        # ── Date filter ───────────────────────────────────────────────────────
+        # Only process files generated within the last N days.
+        # Default: today only (ANOMALY_REPROCESS_DAYS=1).
+        # Set to 0 to disable the filter entirely.
+        _reprocess_days = int(os.getenv("ANOMALY_REPROCESS_DAYS", "1"))
+        if _reprocess_days > 0:
+            _cutoff = datetime.now() - timedelta(days=_reprocess_days - 1)
+            _cutoff_str = _cutoff.strftime("%Y-%m-%d")
+            all_yaml = [
+                f for f in all_yaml
+                if _cutoff_str <= f.stem.rsplit("_", 1)[-1] <= datetime.now().strftime("%Y-%m-%d")
+            ]
+
         # Dedup by pair+lookback key, not full path
         def _yaml_key(path: str) -> str:
             stem = Path(path).stem
             parts = stem.rsplit("_", 1)
             return parts[0]
-        
+
         seen_keys = {_yaml_key(p) for p in ctx.seen_anomalies}
         ctx.new_anomalies = [str(f) for f in all_yaml if _yaml_key(str(f)) not in seen_keys]
         
@@ -848,7 +882,40 @@ def main():
         "--dry-run", action="store_true",
         help="Print configuration and exit without running"
     )
+    parser.add_argument(
+        "--universe", type=str, default=None,
+        help=(
+            "Path to an alternate universe YAML file. "
+            "Defaults to universe.yaml in the project root. "
+            "Compositions are written to a subdirectory named after the "
+            "universe file stem (e.g. --universe universe_bond_equity.yaml "
+            "writes to compositions/bond_equity/). "
+            "This keeps FX and bond/equity runs fully isolated."
+        )
+    )
     args = parser.parse_args()
+
+    # ── Resolve universe-specific paths ──────────────────────────────────────
+    # When --universe is supplied, compositions and anomalies land in their own
+    # subdirectory so FX and bond/equity runs never cross-contaminate.
+    if args.universe:
+        _universe_stem = os.path.splitext(
+            os.path.basename(args.universe)
+        )[0].replace("universe_", "")
+        _compositions_dir = os.path.join(
+            PROJECT_DIR, "compositions", _universe_stem
+        )
+        os.makedirs(_compositions_dir, exist_ok=True)
+        os.makedirs(os.path.join(_compositions_dir, "anomalies"), exist_ok=True)
+        # Monkey-patch the module-level constants so all strategies pick them up
+        import sentinel as _self
+        _self.COMPOSITIONS_DIR = _compositions_dir
+        _self.ANOMALY_DIR      = os.path.join(_compositions_dir, "anomalies")
+        COMPOSITIONS_DIR       = _compositions_dir
+        ANOMALY_DIR            = os.path.join(_compositions_dir, "anomalies")
+        _universe_path         = os.path.abspath(args.universe)
+    else:
+        _universe_path = os.path.join(PROJECT_DIR, "universe.yaml")
 
     if args.dry_run:
         print_config()
@@ -867,7 +934,10 @@ def main():
         log.info("=" * 55)
 
         # ── Create context ────────────────────────────────────────────────────
-        ctx = SentinelContext(promoted_flag=args.promoted)
+        ctx = SentinelContext(
+            promoted_flag=args.promoted,
+            universe_path=_universe_path,
+        )
 
         # ── Build and run strategy chain ──────────────────────────────────────
         success = (

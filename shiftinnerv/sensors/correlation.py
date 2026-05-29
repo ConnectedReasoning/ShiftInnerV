@@ -1,4 +1,5 @@
 import os
+import traceback
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -121,12 +122,24 @@ class CorrelationDecayTool(BaseTool):
             if _factor_proxy in {ticker1.upper(), ticker2.upper()}:
                 _factor_proxy = "SPY"
 
-            # ── Gate 1 threshold selection (Item 1 — multiple comparisons) ──
-            # The threshold used for Gate 1 depends on how many pairs are
-            # being tested in this composition. More pairs = higher threshold
-            # required to maintain the family-wise error rate.
+            # ── Gate 1 threshold selection ────────────────────────────────────
+            # GATE1_CI_OVERRIDE (env): hard-override the CI level regardless of
+            # composition size. Values: "90", "95", "99". Default: None (use
+            # composition-size-adjusted logic below).
+            # Use "90" for research/candidate surfacing mode.
+            _gate1_ci_override = os.getenv("GATE1_CI_OVERRIDE", "").strip()
+
             n_pairs = self.n_pairs_in_composition
-            if n_pairs <= 10:
+            if _gate1_ci_override == "90":
+                _gate1_ci_label = "90%"
+                _gate1_pass = lambda: is_cointegrated_90
+            elif _gate1_ci_override == "95":
+                _gate1_ci_label = "95%"
+                _gate1_pass = lambda: is_cointegrated_95
+            elif _gate1_ci_override == "99":
+                _gate1_ci_label = "99%"
+                _gate1_pass = lambda: is_cointegrated_99
+            elif n_pairs <= 10:
                 _gate1_ci_label = "95%"
                 _gate1_pass = lambda: is_cointegrated_95
             elif n_pairs <= 30:
@@ -140,20 +153,19 @@ class CorrelationDecayTool(BaseTool):
                     (trace_stat / crit_val_99 >= 1.3)
                 )
 
-            # ── Window separation (Chan fix) ──────────────────────────────────────────
-            # Training window: first 250 rows — used ONLY for Johansen eigenvector
-            # Signal window:   remaining rows — used for all spread calculations
-            #
-            # NOTE: With lookback_years=1 (~252 rows total), the signal window will
-            # be only ~2 rows — too short for any reliable z-score. The system default
-            # is now lookback_years=3 (~506 signal rows). Only override to 1 explicitly
-            # if you have a specific short-window reason; prefer 3 or 5.
-            TRAIN_WINDOW = 250
+            # ── Window separation ─────────────────────────────────────────────────────
+            # Training window: scales with available data so a 1yr lookback doesn't
+            # leave a useless 2-row signal window.
+            # Rule: 50% of total rows, clamped to [90, 250].
+            #   1yr lookback (~252 rows) → 126d train + 126d signal
+            #   3yr lookback (~756 rows) → 250d train + 506d signal  (unchanged)
+            _total_rows  = len(log_prices)
+            TRAIN_WINDOW = max(90, min(250, int(_total_rows * 0.50)))
             if len(log_prices) < TRAIN_WINDOW + 60:
                 return (
                     f"Tool error: insufficient data for window separation. "
                     f"Need at least {TRAIN_WINDOW + 60} aligned rows "
-                    f"(250 training + 60 signal). "
+                    f"({TRAIN_WINDOW} training + 60 signal). "
                     f"Got {len(log_prices)} rows for {ticker1}/{ticker2}. "
                     f"Increase lookback_years or check data availability."
                 )
@@ -162,25 +174,60 @@ class CorrelationDecayTool(BaseTool):
             log_prices_signal = log_prices.iloc[TRAIN_WINDOW:]
 
             # ── Multi-lag Johansen (Item 17 — Chan/Vidyamurthy fix) ──────────────────
-            # Run at k=1, 2, 3. Use the most conservative result (lowest trace stat).
-            # Critical values are k-invariant — only the trace statistic changes.
-            # The eigenvector from the conservative run is used for the hedge ratio
-            # and propagates into all SNR calculations.
-            _johansen_runs = {}
-            for _k in [1, 2, 3]:
-                _r = coint_johansen(log_prices_train, det_order=0, k_ar_diff=_k)
-                _johansen_runs[_k] = _r
+            # RESEARCH_MODE (env JOHANSEN_LAG_STRATEGY):
+            #   "conservative" (default): run k=1,2,3 and use lowest trace stat.
+            #     Appropriate for live capital — minimises false positives.
+            #   "standard": use k=1 only (academic default).
+            #     Appropriate for research/candidate surfacing — more pairs pass.
+            #   "best": run k=1,2,3 and use HIGHEST trace stat.
+            #     Maximum sensitivity — surfaces borderline candidates.
+            #
+            # JOHANSEN_DET_ORDER (env, default "0"):
+            #   "0"  : no intercept, no trend (classic pairs assumption)
+            #   "1"  : restricted constant (allows drift in spread)
+            #   "best": try both det_order=0 and det_order=1, use whichever
+            #           gives the higher trace stat (maximum sensitivity)
+            _lag_strategy = os.getenv("JOHANSEN_LAG_STRATEGY", "conservative").lower()
+            _det_order_env = os.getenv("JOHANSEN_DET_ORDER", "0").lower()
 
-            conservative_k    = min(_johansen_runs, key=lambda k: _johansen_runs[k].lr1[0])
-            coint_result      = _johansen_runs[conservative_k]
+            # Build the set of (det_order, k) combinations to run
+            _det_orders = [0, 1] if _det_order_env == "best" else [int(_det_order_env)]
+            _k_values   = [1, 2, 3] if _lag_strategy != "standard" else [1]
+
+            _johansen_runs = {}  # keyed by (det_order, k)
+            for _det in _det_orders:
+                for _k in _k_values:
+                    _r = coint_johansen(log_prices_train, det_order=_det, k_ar_diff=_k)
+                    _johansen_runs[(_det, _k)] = _r
+
+            # Select the run to use based on lag strategy
+            if _lag_strategy == "best":
+                _best_key = max(_johansen_runs, key=lambda dk: _johansen_runs[dk].lr1[0])
+            elif _lag_strategy == "standard":
+                # k=1; if multiple det_orders, pick best among them
+                _best_key = max(
+                    [dk for dk in _johansen_runs if dk[1] == 1],
+                    key=lambda dk: _johansen_runs[dk].lr1[0]
+                )
+            else:
+                # conservative: lowest trace across all runs
+                _best_key = min(_johansen_runs, key=lambda dk: _johansen_runs[dk].lr1[0])
+
+            conservative_k = _best_key[1]
+            coint_result   = _johansen_runs[_best_key]
 
             trace_stat        = coint_result.lr1[0]
             crit_val_90       = coint_result.cvt[0, 0]
             crit_val_95       = coint_result.cvt[0, 1]
             crit_val_99       = coint_result.cvt[0, 2]
 
-            # All three trace statistics — for reporting
-            trace_by_k = {k: _johansen_runs[k].lr1[0] for k in [1, 2, 3]}
+            # Report per-k traces using the selected det_order for display
+            _selected_det = _best_key[0]
+            trace_by_k = {
+                k: _johansen_runs[(_selected_det, k)].lr1[0]
+                for k in _k_values
+                if (_selected_det, k) in _johansen_runs
+            }
 
             # Report all three confidence levels — agent sees the full picture
             is_cointegrated_90 = trace_stat > crit_val_90
@@ -218,10 +265,10 @@ class CorrelationDecayTool(BaseTool):
                         }).dropna()
 
                         if len(_lp_train3) >= 60:
-                            # Run at same conservative k as Item 17
+                            # Run at same det_order and k as primary Johansen
                             _r3 = coint_johansen(
                                 _lp_train3,
-                                det_order=0,
+                                det_order=_best_key[0],
                                 k_ar_diff=conservative_k,
                             )
                             _evec = _r3.evec[:, 0]   # first cointegrating vector
@@ -396,7 +443,7 @@ class CorrelationDecayTool(BaseTool):
             if len(log_prices_signal) < 60:
                 report += (
                     f"WARNING: Signal window has only {len(log_prices_signal)} rows after "
-                    f"reserving 250 days for Johansen training. "
+                    f"reserving {TRAIN_WINDOW} days for Johansen training. "
                     f"Consider increasing lookback_years to 2 or 3 for reliable z-score estimates.\n\n"
                 )
             report += f"Baseline mean correlation: {mean_corr:.3f}\n"
@@ -417,7 +464,7 @@ class CorrelationDecayTool(BaseTool):
 
             # Report all three CI levels for Johansen — conservative multi-lag result
             report += "Johansen cointegration (multi-lag conservative):\n"
-            report += f"  Lag traces — k=1: {trace_by_k[1]:.4f}  k=2: {trace_by_k[2]:.4f}  k=3: {trace_by_k[3]:.4f}\n"
+            report += f"  Lag traces — {', '.join(f'k={k}: {trace_by_k[k]:.4f}' for k in sorted(trace_by_k))}  (det_order={_selected_det})\n"
             report += f"  Conservative lag selected: k={conservative_k} (lowest trace = {trace_stat:.4f})\n"
             report += f"  90% CI critical value: {crit_val_90:.4f}  — {'PASS' if is_cointegrated_90 else 'FAIL'}\n"
             report += f"  95% CI critical value: {crit_val_95:.4f}  — {'PASS' if is_cointegrated_95 else 'FAIL'}\n"
@@ -601,4 +648,6 @@ class CorrelationDecayTool(BaseTool):
             return report
 
         except Exception as e:
-            return f"Tool error: {e}"
+            tb = traceback.format_exc()
+            log.error(f"[CorrelationDecayTool] Exception for {ticker1}/{ticker2}: {type(e).__name__}: {e}\n{tb}")
+            return f"Tool error: {type(e).__name__}: {e}"

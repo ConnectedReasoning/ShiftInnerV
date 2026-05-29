@@ -282,9 +282,9 @@ if __name__ == "__main__":
     if not (_os_news.getenv("FRED_API_KEY", "") or ""):
         print("  ⚠️  FRED_API_KEY not set — Tier 1/2 macro context will be limited")
         log.warning("[Item 21] FRED_API_KEY not set — macro calendar fetch degraded")
-    if not (_os_news.getenv("TIINGO_KEY", "") or _os_news.getenv("TIINGO_API_KEY", "")):
-        print("  ⚠️  TIINGO_KEY not set — Tier 3 ticker headlines will be skipped")
-        log.warning("[Item 21] TIINGO_KEY not set — Tier 3 headlines skipped")
+    if not _os_news.getenv("ALPHA_VANTAGE_KEY", ""):
+        print("  ⚠️  ALPHA_VANTAGE_KEY not set — Tier 3 ticker headlines will be skipped")
+        log.warning("[Item 21] ALPHA_VANTAGE_KEY not set — Tier 3 headlines skipped")
 
     # ── Run crew for each pair ────────────────────────────────────────────────
     verdicts = []

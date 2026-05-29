@@ -1,0 +1,98 @@
+# ShiftInnerV — Bond/Equity Universe
+#
+# Capital structure and risk-regime pairs trading universe.
+# All tickers available via yfinance. No paid data required.
+#
+# Three structural themes:
+#
+#   1. TREASURY vs EQUITY INDEX
+#      Flight-to-quality relationship. TLT/SPY divergence flags
+#      risk regime transitions. Your regime detector (VIX) pairs
+#      naturally with this — when VIX spikes, TLT/SPY spread
+#      moves predictably. Mean reversion after the spike is the trade.
+#
+#   2. CREDIT SPREAD (HIGH YIELD vs TREASURIES)
+#      HYG/JNK vs TLT captures the credit risk premium.
+#      When high yield spreads blow out relative to Treasuries,
+#      the mean reversion trade has historically been reliable.
+#      HYG vs IWM adds the equity side — small caps are the
+#      largest high-yield borrowers, so they move together.
+#
+#   3. YIELD CURVE
+#      TLT vs SHY is a pure duration trade — long end vs short end.
+#      Steepening/flattening cycles mean-revert around Fed cycle
+#      inflection points. Cleanest cointegration in fixed income.
+#
+# Universe design notes:
+#   - All ETFs: clean data, liquid, no corporate action noise
+#   - 20 tickers → ~45 candidate pairs after correlation filter
+#   - Lookback recommendation: 2yr (captures current rate cycle)
+#   - det_order=1 likely needed (spreads have drift in rate cycles)
+#   - Gate 6 factor proxy: SPY for equity ETFs, TLT for bond ETFs
+#
+# Used by: pair_sourcer.py
+# Data source: yfinance
+
+# Lookback period for cointegration analysis.
+# 2 years captures the current rate regime (post-2024 Fed pause/cut phase)
+# without spanning the full COVID-recovery/hiking-cycle structural break.
+# Must be >= 2 to satisfy the 252-day rolling correlation minimum in pair_sourcer.
+# The gate evaluator uses 50% of rows for training (~126d) and 50% for signal,
+# giving adequate z-score and episode history on a 2-year window.
+lookback_years: 2
+
+universe:
+
+  # TIER 1: Treasury Duration Ladder
+  # Pure US government bond exposure across the curve.
+  # TLT/IEF/SHY are the backbone — most liquid, cleanest data.
+  # ─────────────────────────────────────────────────────────
+  treasuries:
+    - TLT       # iShares 20+ Year Treasury (long duration, most volatile)
+    - IEF       # iShares 7-10 Year Treasury (belly of the curve)
+    - SHY       # iShares 1-3 Year Treasury (short end, near-cash)
+    - TIP       # iShares TIPS (inflation-protected — diverges from TLT on CPI)
+    - GOVT      # iShares Core US Treasury (broad blended duration)
+
+  # TIER 2: Credit ETFs
+  # Investment grade and high yield corporate bonds.
+  # LQD vs TLT = pure credit spread trade (rates held constant).
+  # HYG vs LQD = pure quality spread (IG vs HY, same duration).
+  # ─────────────────────────────────────────────────────────
+  credit:
+    - LQD       # iShares Investment Grade Corporate
+    - HYG       # iShares High Yield Corporate (most liquid HY ETF)
+    - JNK       # SPDR High Yield (near-duplicate of HYG — spread between them is itself a trade)
+    - BKLN      # Invesco Senior Loan (floating rate — different rate sensitivity)
+
+  # TIER 3: Broad Equity Indexes
+  # The equity side of the risk-on/risk-off pair.
+  # SPY/TLT is the canonical flight-to-quality trade.
+  # IWM is the high-yield proxy — small caps borrow in HY market.
+  # ─────────────────────────────────────────────────────────
+  equity_indexes:
+    - SPY       # S&P 500 (large cap, flight-to-quality counterpart)
+    - IWM       # Russell 2000 (small cap — HYG natural pair)
+    - QQQ       # Nasdaq 100 (duration-sensitive, pairs with TLT in rate moves)
+    - VTV       # Vanguard Value (value factor — rate-sensitive, pairs with IEF)
+
+  # TIER 4: Sector ETFs with Bond Sensitivity
+  # Sectors whose equity prices move with rates or credit conditions.
+  # XLU/TLT: utilities are bond proxies — dividend yield vs Treasury yield.
+  # XLRE/IEF: REITs are rate-sensitive, pairs well with intermediate Treasuries.
+  # KBE/LQD: banks profit from credit spreads, natural pair with IG corporates.
+  # ─────────────────────────────────────────────────────────
+  rate_sensitive_equity:
+    - XLU       # Utilities (bond proxy — high dividend, regulated returns)
+    - XLRE      # Real Estate (rate-sensitive, cap rate vs Treasury yield)
+    - KBE       # S&P Bank ETF (net interest margin = spread between rates)
+    - XLF       # Financials broad (overlaps KBE but adds insurance/asset mgmt)
+
+  # TIER 5: Volatility and Risk Sentiment
+  # These don't trade directly but add signal to the pair relationships.
+  # VIXY: VIX futures ETF — when it spikes, TLT/SPY spread moves.
+  # GLD: gold acts as a bond substitute in risk-off — pairs with TLT.
+  # ─────────────────────────────────────────────────────────
+  risk_sentiment:
+    - GLD       # Gold (inflation hedge, risk-off — pairs with TLT and TIP)
+    - VIXY      # ProShares VIX Short-Term Futures (risk sentiment proxy)
