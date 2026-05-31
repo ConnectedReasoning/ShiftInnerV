@@ -374,6 +374,93 @@ class RegimeDetectionStrategy(Strategy):
         return True
 
 
+# ── STRATEGY: Skew Snapshot ──────────────────────────────────────────────────
+
+class SkewSnapshotStrategy(Strategy):
+    """
+    Daily put skew snapshot for the Dow universe (or any skew-enabled universe).
+
+    Runs after regime detection. Fetches yfinance options chains, computes
+    put skew (OTM IV / ATM IV) for each ticker, normalises against SPY, and
+    persists to the skew_ledger table in trial_ledger.db.
+
+    Non-fatal: skew failure never blocks downstream strategies.
+    Skipped silently if the universe file has no skew-relevant tickers.
+    """
+
+    def name(self) -> str:
+        return "Skew Snapshot"
+
+    def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
+        try:
+            from shiftinnerv.sensors.skew_monitor import SkewMonitor
+            import yaml
+
+            universe_path = ctx.universe_path or os.path.join(PROJECT_DIR, "universe.yaml")
+            if not os.path.exists(universe_path):
+                log.warning("[skew] Universe file not found — skipping skew snapshot.")
+                print("  ⚠️  Universe file not found — skipping skew snapshot.")
+                return True
+
+            # Load tickers from universe yaml
+            with open(universe_path) as f:
+                udata = yaml.safe_load(f)
+
+            universe_block = udata.get("universe", {})
+            tickers = []
+            for category_tickers in universe_block.values():
+                if isinstance(category_tickers, list):
+                    tickers.extend(category_tickers)
+            tickers = sorted(set(tickers))
+
+            if not tickers:
+                log.info("[skew] No tickers in universe — skipping skew snapshot.")
+                print("  No tickers found in universe — skipping.")
+                return True
+
+            print(f"  Snapshotting put skew for {len(tickers)} tickers...")
+            log.info(f"[skew] Starting snapshot for {len(tickers)} tickers.")
+
+            monitor = SkewMonitor(db_path=LEDGER_DB_PATH, logger=log)
+            results = monitor.snapshot(tickers=tickers)
+
+            # Summarise results
+            ok      = [r for r in results if r.raw_skew is not None]
+            failed  = [r for r in results if r.fetch_error is not None]
+            flagged = [r for r in ok if r.low_liquidity]
+
+            # Top 5 by norm_skew (stress signals)
+            ranked = sorted(
+                [r for r in ok if r.norm_skew is not None],
+                key=lambda r: r.norm_skew,
+                reverse=True,
+            )
+
+            print(f"  ✓ {len(ok)} succeeded  |  {len(failed)} failed  |  {len(flagged)} low-liquidity")
+            if ranked:
+                print("  Top skew (idiosyncratic stress):")
+                for r in ranked[:5]:
+                    liq = " ⚠️ low-vol" if r.low_liquidity else ""
+                    print(f"    {r.ticker:<6s}  norm_skew={r.norm_skew:.3f}  raw={r.raw_skew:.3f}{liq}")
+
+            if failed:
+                for r in failed[:3]:
+                    log.warning(f"[skew] {r.ticker}: {r.fetch_error}")
+                if len(failed) > 3:
+                    log.warning(f"[skew] ... and {len(failed) - 3} more failures.")
+
+            log.info(
+                f"[skew] Snapshot complete — {len(ok)}/{len(results)} OK, "
+                f"{len(failed)} failed, {len(flagged)} low-liquidity."
+            )
+
+        except Exception as e:
+            log.warning(f"[skew] Snapshot failed unexpectedly: {e}")
+            print(f"  ⚠️  Skew snapshot error: {e}")
+
+        return True  # Non-fatal always
+
+
 # ── STRATEGY: Pair Sourcing ──────────────────────────────────────────────────
 
 class PairSourcingStrategy(Strategy):
@@ -946,6 +1033,7 @@ def main():
         success = (
             SentinelOrchestrator(log)
             .add(RegimeDetectionStrategy())
+            .add(SkewSnapshotStrategy())
             .add(PairSourcingStrategy())
             .add(MonitorStrategy())
             .add(PositionRevalidationStrategy())

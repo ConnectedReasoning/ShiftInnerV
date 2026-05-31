@@ -205,6 +205,7 @@ def cluster_tickers(corr_matrix: pd.DataFrame, n_clusters: int) -> Dict[str, int
     Cluster tickers by correlation behavior using K-means.
     Returns: Dict mapping ticker -> cluster_id.
     """
+    n_clusters = min(n_clusters, len(corr_matrix))
     print(f"Clustering tickers into {n_clusters} groups...")
     
     # Use correlation matrix as features

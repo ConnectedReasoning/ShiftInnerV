@@ -1,0 +1,83 @@
+# ShiftInnerV — Dow Jones Put Skew Universe
+#
+# Capital structure signal via options market:
+#   Each ticker is paired against its own put implied volatility skew,
+#   captured daily by the SkewSnapshotStrategy in Sentinel.
+#
+# Thesis:
+#   When a company's equity price remains elevated but its put skew spikes
+#   (OTM puts getting expensive relative to ATM), the options market is pricing
+#   in idiosyncratic credit/default stress that equity hasn't acknowledged yet.
+#   That divergence tends to resolve — either equity catches down or the fear
+#   subsides. Both directions are tradeable.
+#
+# Skew metric:
+#   raw_skew  = IV(put at ~80% moneyness) / IV(put at ~100% moneyness)
+#   norm_skew = raw_skew(ticker) / raw_skew(SPY)
+#
+#   norm_skew > 1.5 with stable equity → elevated idiosyncratic stress signal
+#   norm_skew rising trend over 5-10 days → building credit concern
+#
+# Data source:
+#   yfinance options chain (daily snapshot via SkewSnapshotStrategy).
+#   Historical series self-builds after ~10 Sentinel runs.
+#   No paid data required.
+#
+# Universe:
+#   All 30 current Dow Jones Industrial Average components (as of Nov 2024).
+#   SPY is always included automatically as the normalisation benchmark.
+#
+# Run with:
+#   python sentinel.py --universe universe_dow_skew.yaml
+
+lookback_years: 2
+
+universe:
+
+  # Technology & Communications
+  technology:
+    - AAPL      # Apple
+    - MSFT      # Microsoft
+    - NVDA      # Nvidia
+    - CRM       # Salesforce
+    - CSCO      # Cisco
+    - IBM       # IBM
+    - AMZN      # Amazon
+    - VZ        # Verizon
+
+  # Financials — deepest options markets, strongest skew signal
+  financials:
+    - JPM       # JPMorgan Chase
+    - GS        # Goldman Sachs
+    - AXP       # American Express
+    - V         # Visa
+    - TRV       # Travelers
+
+  # Healthcare
+  healthcare:
+    - UNH       # UnitedHealth Group
+    - JNJ       # Johnson & Johnson
+    - MRK       # Merck
+    - AMGN      # Amgen
+
+  # Industrials & Energy
+  industrials:
+    - BA        # Boeing — high credit stress history, skew signal strong
+    - CAT       # Caterpillar
+    - HON       # Honeywell
+    - MMM       # 3M
+    - CVX       # Chevron
+
+  # Consumer Staples & Discretionary
+  consumer:
+    - WMT       # Walmart
+    - PG        # Procter & Gamble
+    - KO        # Coca-Cola
+    - MCD       # McDonald's
+    - NKE       # Nike
+    - DIS       # Disney
+    - HD        # Home Depot
+
+  # Materials
+  materials:
+    - SHW       # Sherwin-Williams
