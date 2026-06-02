@@ -302,24 +302,57 @@ class SkewMonitor:
 
     # ── Snapshot ──────────────────────────────────────────────────────────────
 
-    def snapshot(self, tickers: List[str]) -> List[SkewRecord]:
+    def snapshot(
+        self,
+        tickers: List[str],
+        sleep_between: float = 1.0,
+        max_retries: int = 2,
+    ) -> List[SkewRecord]:
         """
         Fetch put skew for each ticker and persist to DB.
 
         SPY is always fetched as the normalisation benchmark (even if not in
         the tickers list). Results include SPY's own record.
 
+        Parameters
+        ----------
+        tickers        : list of ticker symbols
+        sleep_between  : seconds to wait between fetches (default 1.0)
+                         At 500 tickers this adds ~8 minutes — acceptable for
+                         a daily morning run.
+        max_retries    : retry attempts on transient errors (default 2)
+                         with exponential backoff.
+
         Returns list of SkewRecord (including SPY).
         """
-        today_str = date.today().isoformat()
-        all_tickers = list(dict.fromkeys([SPY_BENCHMARK] + tickers))  # SPY first, deduped
+        import time
 
+        all_tickers = list(dict.fromkeys([SPY_BENCHMARK] + tickers))  # SPY first, deduped
+        total       = len(all_tickers)
         raw_records: dict[str, SkewRecord] = {}
 
-        for ticker in all_tickers:
-            self.logger.info(f"[skew] Fetching {ticker}...")
-            rec = compute_raw_skew(ticker, logger=self.logger)
+        for i, ticker in enumerate(all_tickers, 1):
+            self.logger.info(f"[skew] Fetching {ticker} ({i}/{total})...")
+
+            # Retry loop with exponential backoff
+            rec = None
+            for attempt in range(1, max_retries + 1):
+                rec = compute_raw_skew(ticker, logger=self.logger)
+                if rec.fetch_error is None:
+                    break
+                if attempt < max_retries:
+                    backoff = sleep_between * (2 ** attempt)
+                    self.logger.warning(
+                        f"[skew] {ticker}: attempt {attempt} failed "
+                        f"({rec.fetch_error}) — retrying in {backoff:.1f}s"
+                    )
+                    time.sleep(backoff)
+
             raw_records[ticker] = rec
+
+            # Rate limit pause between tickers (skip after last)
+            if i < total:
+                time.sleep(sleep_between)
 
         # Normalise against SPY
         spy_rec = raw_records.get(SPY_BENCHMARK)

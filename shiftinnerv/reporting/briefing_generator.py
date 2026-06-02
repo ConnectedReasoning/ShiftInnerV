@@ -48,7 +48,8 @@ def generate_sentinel_briefing(
     verdicts: Dict[str, int],
     rejected_pairs: List[Dict],
     open_positions: int,
-    universe_name: str = "FX Currencies",
+    universe_name: str = "Dow Skew",
+    skew_signals: Optional[List] = None,
 ) -> str:
     """
     Generate a structured briefing for end-of-sentinel-run.
@@ -101,9 +102,9 @@ def generate_sentinel_briefing(
     lines.append("")
     lines.append(f"**{timestamp}** | Universe: {universe_name}")
     lines.append("")
-    lines.append("> **Purpose:** Daily market assessment for quantitative FX pair trading. Identifies cointegrated currency pairs, evaluates market regime, and recommends position management actions.")
+    lines.append("> **Purpose:** Daily options skew signal scan. Identifies Dow stocks where the options market is pricing in stress or calm that the equity price has not yet acknowledged.")
     lines.append("")
-    
+
     # Market Regime Section (Table)
     lines.append("## 📊 Market Regime")
     lines.append("")
@@ -118,41 +119,41 @@ def generate_sentinel_briefing(
     lines.append(f"> {regime_description}")
     lines.append("")
     
-    # Pair Sourcing Section
-    lines.append("## 🎯 Pair Sourcing")
+    # Skew Signals Section
+    lines.append("## 🎯 Skew Signals")
     lines.append("")
-    lines.append("**Purpose:** Identify liquid FX pairs with potential cointegration (tendency to move together or revert to mean). Pairs are ranked by correlation strength and statistical signal.")
+    lines.append("**Purpose:** Stocks where put skew z-score exceeds ±1.0 — options market diverging from equity price.")
     lines.append("")
-    lines.append(f"- **Method:** Correlation clustering + mean-reversion decay detection")
     lines.append(f"- **Universe:** {universe_name}")
-    lines.append(f"- **Pairs generated:** **100** candidate pairs for screening")
+    lines.append(f"- **Method:** Rolling 10-day z-score of normalised put skew (OTM IV / ATM IV, SPY-normalised)")
+    lines.append(f"- **Entry threshold:** z-score > +1.0 → SHORT | z-score < -1.0 → LONG")
+    lines.append(f"- **Exit:** z-score reverts to 0, or 5-day time stop")
     lines.append("")
-    
-    if sourced_pairs:
-        lines.append("**Top Pairs by Cointegration Score:**")
+
+    skew_signals = skew_signals or []
+    actionable   = [s for s in skew_signals if s.signal in ("SHORT", "LONG")]
+    warming_up   = [s for s in skew_signals if s.signal == "INSUFFICIENT_DATA"]
+
+    if actionable:
+        lines.append("**Actionable Signals:**")
         lines.append("")
-        lines.append("| Pair | Score | Correlation | Interpretation |")
-        lines.append("|------|-------|-------------|-----------------|")
-        for i, p in enumerate(sourced_pairs[:10], 1):
-            ticker1 = p['ticker1']
-            ticker2 = p['ticker2']
-            score = p.get('score', 0)
-            corr = p.get('corr', 0)
-            
-            # Correlation interpretation
-            if corr > 0.7:
-                corr_meaning = "Strong positive correlation (move together)"
-            elif corr > 0.5:
-                corr_meaning = "Moderate correlation (some co-movement)"
-            else:
-                corr_meaning = "Weak correlation (independent moves)"
-            
-            lines.append(f"| {ticker1}/{ticker2} | {score:.2f} | {corr:.3f} | {corr_meaning} |")
+        lines.append("| Ticker | Signal | Z-Score | Norm Skew | History |")
+        lines.append("|--------|--------|---------|-----------|---------|")
+        for s in sorted(actionable, key=lambda x: abs(x.z_score or 0), reverse=True):
+            arrow  = "⬇ SHORT" if s.signal == "SHORT" else "⬆ LONG"
+            z_str  = f"{s.z_score:+.2f}" if s.z_score is not None else "N/A"
+            ns_str = f"{s.norm_skew:.3f}" if s.norm_skew is not None else "N/A"
+            lines.append(f"| {s.ticker} | {arrow} | {z_str} | {ns_str} | {s.history_days}d |")
         lines.append("")
     else:
-        lines.append("No pairs sourced (pair sourcing disabled or error).")
+        lines.append("**No actionable signals today** — all tickers within normal skew range.")
         lines.append("")
-    
+
+    if warming_up:
+        min_hist = min(s.history_days for s in warming_up)
+        lines.append(f"> ⏳ **{len(warming_up)} ticker(s) still warming up** — need {10 - min_hist} more day(s) of history before signalling.")
+        lines.append("")
+
     # Screening Results Section
     lines.append("## 📋 Screening Results")
     lines.append("")

@@ -125,6 +125,9 @@ class SentinelContext:
     open_positions_count: int = 0
     vix_level: float = 0.0
     
+    # Skew signals
+    skew_signals: list = field(default_factory=list)
+
     # Error tracking
     crisis_halt: bool = False
 
@@ -457,6 +460,68 @@ class SkewSnapshotStrategy(Strategy):
         except Exception as e:
             log.warning(f"[skew] Snapshot failed unexpectedly: {e}")
             print(f"  ⚠️  Skew snapshot error: {e}")
+
+        return True  # Non-fatal always
+
+
+# ── STRATEGY: Skew Signal Generation ─────────────────────────────────────────
+
+class SkewSignalStrategy(Strategy):
+    """
+    Compute rolling z-score signals from skew_ledger and store in ctx.
+    Runs after SkewSnapshotStrategy so today's snapshot is already persisted.
+    Non-fatal: signal failure never blocks downstream strategies.
+    """
+
+    def name(self) -> str:
+        return "Skew Signal Generation"
+
+    def execute(self, ctx: "SentinelContext", log: logging.Logger) -> bool:
+        try:
+            from shiftinnerv.sensors.skew_signal import SkewSignalGenerator
+            from shiftinnerv.pipelines.pair_sourcer import load_universe, flatten_universe
+
+            universe_path = ctx.universe_path or os.path.join(PROJECT_DIR, "universe.yaml")
+            if not os.path.exists(universe_path):
+                log.warning("[skew_signal] Universe file not found — skipping.")
+                return True
+
+            universe = load_universe(universe_path)
+            tickers  = flatten_universe(universe)
+
+            if not tickers:
+                log.info("[skew_signal] No tickers — skipping.")
+                return True
+
+            print(f"  Generating skew signals for {len(tickers)} tickers...")
+            gen     = SkewSignalGenerator(db_path=LEDGER_DB_PATH, logger=log)
+            signals = gen.generate(tickers)
+
+            # Store actionable signals in context for briefing
+            ctx.skew_signals = signals
+
+            shorts = [s for s in signals if s.signal == "SHORT"]
+            longs  = [s for s in signals if s.signal == "LONG"]
+            insuf  = [s for s in signals if s.signal == "INSUFFICIENT_DATA"]
+
+            print(f"  Skew signals: {len(shorts)} SHORT  {len(longs)} LONG  "
+                  f"{len(signals) - len(shorts) - len(longs) - len(insuf)} HOLD  "
+                  f"{len(insuf)} warming up")
+
+            if shorts or longs:
+                print("  Actionable signals:")
+                for s in sorted(shorts + longs, key=lambda x: abs(x.z_score or 0), reverse=True):
+                    direction = "⬇ SHORT" if s.signal == "SHORT" else "⬆ LONG"
+                    print(f"    {s.ticker:<6s}  {direction}  z={s.z_score:+.2f}  "
+                          f"norm_skew={s.norm_skew:.3f}  ({s.history_days}d history)")
+
+            log.info(f"[skew_signal] {len(shorts)} SHORT  {len(longs)} LONG  "
+                     f"{len(insuf)} insufficient data")
+
+        except Exception as e:
+            log.warning(f"[skew_signal] Failed: {e}")
+            print(f"  ⚠️  Skew signal error: {e}")
+            ctx.skew_signals = []
 
         return True  # Non-fatal always
 
@@ -861,6 +926,7 @@ class BriefingStrategy(Strategy):
                     rejected_pairs=ctx.rejected_pairs,
                     open_positions=ctx.open_positions_count,
                     universe_name=ctx.universe_name,
+                    skew_signals=getattr(ctx, "skew_signals", []),
                 )
                 
                 # Print to console
@@ -1034,6 +1100,7 @@ def main():
             SentinelOrchestrator(log)
             .add(RegimeDetectionStrategy())
             .add(SkewSnapshotStrategy())
+            .add(SkewSignalStrategy())
             .add(PairSourcingStrategy())
             .add(MonitorStrategy())
             .add(PositionRevalidationStrategy())
