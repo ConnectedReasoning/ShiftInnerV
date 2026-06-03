@@ -48,9 +48,7 @@ load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR         = os.path.expanduser(
-    os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data")
-)
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
 COMPOSITIONS_DIR = os.path.join(PROJECT_DIR, "compositions")
 ANOMALY_DIR      = os.path.join(COMPOSITIONS_DIR, "anomalies")
 LOG_PATH         = os.path.join(DATA_DIR, "sentinel.log")
@@ -89,42 +87,42 @@ class SentinelContext:
     # Run metadata
     run_timestamp: datetime = field(default_factory=datetime.now)
     promoted_flag: bool = False
-    
+
     # Regime detection
     regime: object = None                # RegimeSnapshot from regime detector
     regime_state: str = "NORMAL"
     position_size_multiplier: float = 1.0
-    
+
     # Pair sourcing
     sourced_composition_path: str | None = None
     universe_path: str | None = None   # set from --universe arg; None = default universe.yaml
     universe_name: str = "FX"          # human-readable name derived from universe filename
-    
+
     # Monitor results
     monitor_success: bool = False
-    
+
     # Position revalidation
     revalidation_results: list = field(default_factory=list)
     auto_close_count: int = 0
     monitor_count: int = 0
     hold_count: int = 0
-    
+
     # Anomaly processing
     seen_anomalies: set = field(default_factory=set)
     new_anomalies: list = field(default_factory=list)
     processed_anomalies_count: int = 0
-    
+
     # Promoted composition
     promoted_path: str | None = None
     promoted_executed: bool = False
-    
+
     # Briefing data
     sourced_pairs: list = field(default_factory=list)
     verdicts: dict = field(default_factory=lambda: {'active': 0, 'monitor': 0, 'reject': 0})
     rejected_pairs: list = field(default_factory=list)
     open_positions_count: int = 0
     vix_level: float = 0.0
-    
+
     # Skew signals
     skew_signals: list = field(default_factory=list)
 
@@ -264,12 +262,12 @@ def latest_sourced() -> str | None:
 
 class Strategy(ABC):
     """Base strategy class. Each strategy is independently testable."""
-    
+
     @abstractmethod
     def name(self) -> str:
         """Return the strategy name for logging."""
         pass
-    
+
     @abstractmethod
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         """
@@ -287,18 +285,18 @@ class RegimeDetectionStrategy(Strategy):
     Detect market regime. Sets ctx.regime, ctx.regime_state, ctx.position_size_multiplier.
     On CRISIS: halts new entries and exits cleanly (not aborted, just early termination).
     """
-    
+
     def name(self) -> str:
         return "Market Regime Detection"
-    
+
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         from shiftinnerv.sensors.regime_monitor import RegimeDetector, RegimeState
         from shiftinnerv.services.trial_ledger import load_open_trials
-        
+
         print("\n── Market Regime Detection ─────────────────────────────────────")
-        
+
         detector = RegimeDetector(data_dir=DATA_DIR, logger=log)
-        
+
         # Load currently open positions for correlation check
         open_positions = []
         if os.path.exists(LEDGER_DB_PATH):
@@ -309,15 +307,15 @@ class RegimeDetectionStrategy(Strategy):
                     for _, row in open_df.iterrows()
                     if row["ticker1"] and row["ticker2"]
                 ]
-        
+
         regime = detector.detect_regime(open_positions=open_positions, logger=log)
-        
+
         # Store in context
         ctx.regime = regime
         ctx.regime_state = regime.state.value
         ctx.position_size_multiplier = regime.position_size_multiplier
         ctx.vix_level = regime.vix_level
-        
+
         # ── Console output ────────────────────────────────────────────────────────
         state_icons = {
             "NORMAL":      "✓",
@@ -330,14 +328,14 @@ class RegimeDetectionStrategy(Strategy):
         print(f"  VIX:      {regime.vix_level:.1f}"
               + ("  [UNAVAILABLE — using default]" if regime.vix_unavailable else ""))
         print(f"  Pos size: {regime.position_size_multiplier}x")
-        
+
         if regime.state == "NORMAL":
             print("  ✓ Market conditions stable.")
         elif regime.state == RegimeState.ELEVATED:
             print("  ⚠️  ELEVATED: Reduce position sizes to 50%.")
         elif regime.state == RegimeState.HIGH_STRESS:
             print("  ⚠️  HIGH_STRESS: Only SNR ≥ 2.0 pairs accepted. Position size 25%.")
-        
+
         if regime.correlation_regime:
             print(f"  ⚠️  CORRELATION_REGIME: {len(regime.correlated_pairs)} pair(s) "
                   f"|SPY corr| > 0.7")
@@ -346,34 +344,34 @@ class RegimeDetectionStrategy(Strategy):
             if regime.state != RegimeState.CRISIS:
                 print(f"  ⚠️  Further reduction applied → final {regime.position_size_multiplier:.4g}x "
                       f"(VIX × 0.5 correlation)")
-        
+
         log.info(
             f"[regime] State={regime.state.value} | VIX={regime.vix_level:.1f} | "
             f"Multiplier={regime.position_size_multiplier}x | "
             f"Open={len(open_positions)} | Correlated={len(regime.correlated_pairs)}"
         )
-        
+
         # Propagate to downstream subprocesses via env vars
         os.environ["CURRENT_REGIME_STATE"]    = regime.state.value
         os.environ["POSITION_SIZE_MULTIPLIER"] = str(regime.position_size_multiplier)
-        
+
         # ── CRISIS: hard halt on new entries ──────────────────────────────────────
         if regime.state == RegimeState.CRISIS:
             print(f"\n❌ HALT: CRISIS regime detected (VIX {regime.vix_level:.1f} ≥ 40)")
             print(f"   No new verdicts will be generated.")
             print(f"   Existing open positions continue to be monitored.")
             print(f"   Operator must manually restart screening after regime normalises.")
-            
+
             log.critical(
                 f"CRISIS_REGIME: VIX {regime.vix_level:.1f} ≥ 40. "
                 f"Halting new entries. Manual restart required."
             )
-            
+
             print(f"\n   Running monitoring only (no new verdicts)...")
             run_subprocess([sys.executable, MONITOR_PY], "monitor.py (monitoring only)", log)
             ctx.crisis_halt = True
             return False  # Abort execution chain, but main() will see crisis_halt flag
-        
+
         return True
 
 
@@ -533,26 +531,26 @@ class PairSourcingStrategy(Strategy):
     Generate intelligent pair composition for today's screening.
     Non-fatal: returns True even if sourcing fails.
     """
-    
+
     def name(self) -> str:
         return "Intelligent Pair Sourcing"
-    
+
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         from shiftinnerv.pipelines.pair_sourcer import source_pairs
-        
+
         print("\n── Intelligent Pair Sourcing ────────────────────────────────────")
-        
+
         universe_path = ctx.universe_path or os.path.join(PROJECT_DIR, "universe.yaml")
         if not os.path.exists(universe_path):
             log.warning(f"[pair_sourcing] universe file not found: {universe_path}")
             print("  universe file not found — skipping pair sourcing")
             return True
-        
+
         output_path = os.path.join(
             COMPOSITIONS_DIR,
             f"sourced_{date.today().strftime('%Y%m%d')}.yaml"
         )
-        
+
         # Skip if already generated today
         if os.path.exists(output_path):
             mtime = datetime.fromtimestamp(os.path.getmtime(output_path))
@@ -561,7 +559,7 @@ class PairSourcingStrategy(Strategy):
                 print(f"  ✓ Using existing sourced composition (generated {mtime.strftime('%H:%M')})")
                 ctx.sourced_composition_path = output_path
                 return True
-        
+
         log.info("[pair_sourcing] START")
         print("  Generating intelligent pairs (correlation clustering + decay detection)...")
 
@@ -586,7 +584,7 @@ class PairSourcingStrategy(Strategy):
             print(f"  ✓ Generated {output_path}")
             ctx.sourced_composition_path = output_path
             return True
-        
+
         except Exception as e:
             import traceback
             log.error(f"[pair_sourcing] FAIL — {e}\n{traceback.format_exc()}")
@@ -603,10 +601,10 @@ class MonitorStrategy(Strategy):
     Run monitor.py to screen pairs and detect anomalies.
     Can run either sourced composition or default anomaly detection.
     """
-    
+
     def name(self) -> str:
         return "Anomaly Detection (Monitor)"
-    
+
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         if ctx.sourced_composition_path:
             # Run anomaly detection (correlation decay) against the compositions dir.
@@ -642,7 +640,7 @@ class MonitorStrategy(Strategy):
         else:
             print(f"\n── Monitor (Default Anomalies) ──────────────────────────────────")
             ok = run_subprocess([sys.executable, MONITOR_PY], "monitor.py", log)
-        
+
         ctx.monitor_success = ok
         return ok  # Abort if monitor fails
 
@@ -654,49 +652,49 @@ class PositionRevalidationStrategy(Strategy):
     Revalidate all open positions for SNR deterioration and mean drift.
     Non-fatal: continues even if revalidation fails.
     """
-    
+
     def name(self) -> str:
         return "Position Revalidation"
-    
+
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         from shiftinnerv.sensors.position_monitor import revalidate_open_positions
         from shiftinnerv.services.trial_ledger import record_position_revalidation
-        
+
         print("\n── Position Revalidation ────────────────────────────────────────")
-        
+
         if not os.path.exists(LEDGER_DB_PATH):
             log.warning(f"[position_revalidation] Trial ledger not found: {LEDGER_DB_PATH}")
             print("  Trial ledger not found — skipping revalidation.")
             return True
-        
+
         results = revalidate_open_positions(
             db_path=LEDGER_DB_PATH,
             data_dir=DATA_DIR,
             logger=log,
         )
-        
+
         if not results:
             print("  No open positions to revalidate.")
             return True
-        
+
         ctx.revalidation_results = results
         ctx.auto_close_count = sum(1 for r in results if r.decision == "AUTO_CLOSE")
         ctx.monitor_count    = sum(1 for r in results if r.decision == "MONITOR")
         ctx.hold_count       = sum(1 for r in results if r.decision == "HOLD")
         error_count          = sum(1 for r in results if r.error is not None)
-        
+
         print(f"  Revalidated {len(results)} open position(s)")
         if ctx.hold_count       > 0: print(f"  ✓  {ctx.hold_count} position(s) to HOLD")
         if ctx.monitor_count    > 0: print(f"  👀 {ctx.monitor_count} position(s) flagged for MONITOR")
         if ctx.auto_close_count > 0: print(f"  ⚠️  {ctx.auto_close_count} position(s) triggered AUTO_CLOSE")
         if error_count          > 0: print(f"  ✗  {error_count} position(s) skipped (data/error)")
-        
+
         log.info(
             f"[position_revalidation] {len(results)} checked — "
             f"{ctx.hold_count} HOLD | {ctx.monitor_count} MONITOR | "
             f"{ctx.auto_close_count} AUTO_CLOSE | {error_count} errors"
         )
-        
+
         # Persist results to revalidation history table
         for result in results:
             if result.error is not None:
@@ -713,7 +711,7 @@ class PositionRevalidationStrategy(Strategy):
                 rationale=result.rationale,
                 days_held=result.days_held,
             )
-        
+
         return True  # Non-fatal
 
 
@@ -762,7 +760,7 @@ class AnomalyProcessingStrategy(Strategy):
 
         seen_keys = {_yaml_key(p) for p in ctx.seen_anomalies}
         ctx.new_anomalies = [str(f) for f in all_yaml if _yaml_key(str(f)) not in seen_keys]
-        
+
         if ctx.new_anomalies:
             log.info(f"New anomaly files: {len(ctx.new_anomalies)}")
             print(f"  Found {len(ctx.new_anomalies)} new anomaly file(s)")
@@ -782,7 +780,7 @@ class AnomalyProcessingStrategy(Strategy):
         else:
             print("  No new anomaly files.")
             log.info("No new anomaly files.")
-        
+
         return True  # Non-fatal
 
 
@@ -793,20 +791,20 @@ class PromotedCompositionStrategy(Strategy):
     Run promoted composition (morning only).
     Non-fatal: continues even if promoted run fails.
     """
-    
+
     def name(self) -> str:
         return "Promoted Composition"
-    
+
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         if not ctx.promoted_flag:
             return True
-        
+
         print("\n── Promoted Composition ─────────────────────────────────────────")
-        
+
         log.info("Promoted run requested — refreshing promote.py...")
         print("  Refreshing promote.py...")
         run_subprocess([sys.executable, PROMOTE_PY, "--quiet"], "promote.py", log)
-        
+
         promoted = latest_promoted()
         if promoted:
             log.info(f"Running promoted: {os.path.basename(promoted)}")
@@ -832,20 +830,20 @@ class AISummaryStrategy(Strategy):
     Generate AI summary after promoted run.
     Non-fatal: continues even if summary generation fails.
     """
-    
+
     def name(self) -> str:
         return "AI Summary Generation"
-    
+
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         if not ctx.promoted_flag or not ctx.promoted_executed:
             return True
-        
+
         summarize_py = os.path.join(PROJECT_DIR, "shiftinnerv", "pipelines", "summarize.py")
         if not os.path.exists(summarize_py):
             log.warning("summarize.py not found — skipping summary.")
             print("  summarize.py not found — skipping summary.")
             return True
-        
+
         print("  Generating AI run summary...")
         log.info("Generating AI run summary...")
         run_subprocess(
@@ -863,23 +861,23 @@ class BriefingStrategy(Strategy):
     Generate end-of-run briefing summary.
     Non-fatal: always returns True.
     """
-    
+
     def name(self) -> str:
         return "Briefing Generation"
-    
+
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         print("\n── End-of-Run Briefing ─────────────────────────────────────────")
-        
+
         try:
             from shiftinnerv.reporting.briefing_generator import generate_sentinel_briefing
-            
+
             # Parse sourced_composition.yaml for top pairs
             sourced_yaml = latest_sourced()
             if sourced_yaml and os.path.exists(sourced_yaml):
                 try:
                     with open(sourced_yaml) as f:
                         lines = f.readlines()
-                        
+
                         # Extract top 5 pairs with scores from header comments
                         # Ticker pattern includes '=' for FX tickers like EURUSD=X
                         for line in lines:
@@ -901,7 +899,7 @@ class BriefingStrategy(Strategy):
                                 break
                 except Exception as e:
                     log.debug(f"Could not parse sourced yaml: {e}")
-            
+
             # Load open positions count
             ctx.open_positions_count = 0
             try:
@@ -913,9 +911,26 @@ class BriefingStrategy(Strategy):
                     conn.close()
             except Exception as e:
                 log.debug(f"Could not count open positions: {e}")
-            
+
             # Generate and print briefing
             try:
+                # Look up company names only for actionable signals (cheap — usually 0-5)
+                actionable_signals = [
+                    s for s in getattr(ctx, "skew_signals", [])
+                    if s.signal in ("SHORT", "LONG")
+                ]
+                ticker_name_map = {}
+                if actionable_signals:
+                    try:
+                        from shiftinnerv.services.ticker_names import get_ticker_names
+                        ticker_name_map = get_ticker_names(
+                            [s.ticker for s in actionable_signals],
+                            db_path=LEDGER_DB_PATH,
+                            logger=log,
+                        )
+                    except Exception as e:
+                        log.debug(f"[briefing] ticker name lookup failed: {e}")
+
                 briefing = generate_sentinel_briefing(
                     regime_state=ctx.regime_state,
                     regime_vix=ctx.vix_level,
@@ -927,34 +942,35 @@ class BriefingStrategy(Strategy):
                     open_positions=ctx.open_positions_count,
                     universe_name=ctx.universe_name,
                     skew_signals=getattr(ctx, "skew_signals", []),
+                    ticker_names=ticker_name_map,
                 )
-                
+
                 # Print to console
                 print(briefing)
-                
+
                 # Write to file
                 report_dir = os.path.expanduser(
                     os.getenv("REPORT_DIR", os.path.join(DATA_DIR, "reports"))
                 )
                 os.makedirs(report_dir, exist_ok=True)
-                
+
                 briefing_path = os.path.join(
                     report_dir,
                     f"briefing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
                 )
                 with open(briefing_path, "w") as f:
                     f.write(briefing)
-                
+
                 log.info(f"[briefing] Generated and saved: {briefing_path}")
                 print(f"  ✓ Briefing saved: {briefing_path}")
             except Exception as e:
                 log.warning(f"[briefing] Could not generate: {e}")
                 print(f"  ⚠️  Briefing generation failed: {e}")
-            
+
         except Exception as e:
             log.warning(f"[briefing] Unexpected error: {e}")
             print(f"  ✗ Briefing strategy error: {e}")
-        
+
         return True  # Non-fatal
 
 
@@ -965,21 +981,21 @@ class SentinelOrchestrator:
     Orchestrates strategy execution.
     Runs strategies in sequence. Stops on fatal failure.
     """
-    
+
     def __init__(self, log: logging.Logger):
         self.log = log
         self.strategies: list[Strategy] = []
-    
+
     def add(self, strategy: Strategy) -> "SentinelOrchestrator":
         """Add a strategy to the chain."""
         self.strategies.append(strategy)
         return self
-    
+
     def run(self, ctx: SentinelContext) -> bool:
         """
         Run all strategies in sequence.
         Returns True if all completed successfully, False if fatal failure.
-        
+
         Special case: if crisis_halt is set, we exit cleanly (not a failure).
         """
         for strategy in self.strategies:
@@ -998,7 +1014,7 @@ class SentinelOrchestrator:
             except Exception as e:
                 self.log.exception(f"Strategy '{strategy.name()}' raised exception: {e}")
                 return False
-        
+
         return True
 
 
@@ -1101,22 +1117,16 @@ def main():
             .add(RegimeDetectionStrategy())
             .add(SkewSnapshotStrategy())
             .add(SkewSignalStrategy())
-            .add(PairSourcingStrategy())
-            .add(MonitorStrategy())
-            .add(PositionRevalidationStrategy())
-            .add(AnomalyProcessingStrategy())
-            .add(PromotedCompositionStrategy())
-            .add(AISummaryStrategy())
             .add(BriefingStrategy())
             .run(ctx)
         )
 
         log.info("Sentinel run complete.")
-        
+
         if ctx.crisis_halt:
             log.info("Crisis halt triggered — exiting cleanly.")
             sys.exit(0)
-        
+
         if not success:
             log.error("Sentinel run failed — check logs.")
             sys.exit(1)

@@ -1,267 +1,179 @@
 """
-Sentinel Run Briefing Generator
+ShiftInnerV Sentinel Briefing Generator — Skew Signal Strategy
 
-Generates a human-readable summary of sentinel execution at end of run.
-Uses Ollama for local synthesis (no API calls, fast execution).
+Generates a clean daily briefing based solely on the options skew signal.
+No pairs trading, no cointegration, no agent verdicts.
 """
 
-import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-import subprocess
-
-
-def call_ollama(prompt: str, model: str = "mistral") -> str:
-    """
-    Call Ollama locally to generate briefing.
-    Falls back gracefully if Ollama is not running.
-    
-    Args:
-        prompt: The prompt to send to Ollama
-        model: Ollama model to use (default: mistral for speed)
-    
-    Returns:
-        Generated text from Ollama, or empty string if unavailable
-    """
-    try:
-        result = subprocess.run(
-            ["ollama", "run", model],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=15
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-        else:
-            return ""  # Silent fallback
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-        return ""  # Silent fallback — Ollama not available
 
 
 def generate_sentinel_briefing(
     regime_state: str,
     regime_vix: float,
     regime_multiplier: float,
-    sourced_pairs: List[Dict],
-    screening_counts: Dict[str, int],
-    verdicts: Dict[str, int],
-    rejected_pairs: List[Dict],
+    sourced_pairs: List[Dict],       # unused — kept for call-site compatibility
+    screening_counts: Dict[str, int], # unused
+    verdicts: Dict[str, int],         # unused
+    rejected_pairs: List[Dict],       # unused
     open_positions: int,
     universe_name: str = "Dow Skew",
     skew_signals: Optional[List] = None,
+    ticker_names: Optional[Dict[str, str]] = None,
 ) -> str:
-    """
-    Generate a structured briefing for end-of-sentinel-run.
-    Styled like StratixCap: emoji headers, tables, clean markdown.
-    Includes contextual explanations and actionable insights.
-    
-    Args:
-        regime_state: Market regime (NORMAL, ELEVATED, HIGH_STRESS, CRISIS)
-        regime_vix: Current VIX level
-        regime_multiplier: Position size multiplier (0.0-1.0)
-        sourced_pairs: List of top sourced pairs [{'ticker1', 'ticker2', 'score', 'corr'}]
-        screening_counts: Dict with counts {'PRIME': n, 'STRONG': n, ...}
-        verdicts: Dict with verdict counts {'active': n, 'monitor': n, 'reject': n}
-        rejected_pairs: List of rejected pairs with reasons [{'pair', 'reason'}]
-        open_positions: Number of currently open positions
-    
-    Returns:
-        Formatted briefing string (markdown)
-    """
-    
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Determine regime icon and status
+    next_run  = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
     regime_icon = {
-        "NORMAL": "✓",
-        "ELEVATED": "⚠️",
+        "NORMAL":      "✓",
+        "ELEVATED":    "⚠️",
         "HIGH_STRESS": "⚠️",
-        "CRISIS": "🔴",
+        "CRISIS":      "🔴",
     }.get(regime_state, "?")
-    
+
     regime_description = {
-        "NORMAL": "Market volatility is low and stable. Full position sizing enabled. Safe to initiate new trades.",
-        "ELEVATED": "Market stress is rising. Position sizing reduced to 50%. Use caution with new entries; prioritize existing position management.",
-        "HIGH_STRESS": "Significant market stress detected. Only SNR ≥ 2.0 pairs accepted. Position sizing at 25%. New entries only for strongest signals.",
-        "CRISIS": "CRISIS regime active (VIX ≥ 40). New trade entries are HALTED. Monitoring open positions only. Manual intervention may be required.",
+        "NORMAL":      "Market volatility is low and stable. Full position sizing enabled.",
+        "ELEVATED":    "Market stress is rising. Position sizing reduced to 50%.",
+        "HIGH_STRESS": "Significant market stress detected. Position sizing at 25%.",
+        "CRISIS":      "CRISIS regime active (VIX ≥ 40). New trade entries are HALTED.",
     }.get(regime_state, "Unknown regime state.")
-    
+
     regime_status = {
-        "NORMAL": "Conditions stable — full position sizing active",
-        "ELEVATED": "Elevated stress — position sizing reduced to 50%",
-        "HIGH_STRESS": "High stress — SNR ≥ 2.0 pairs only, 25% sizing",
-        "CRISIS": "CRISIS regime — monitoring only, new entries halted",
+        "NORMAL":      "Conditions stable — full position sizing active",
+        "ELEVATED":    "Elevated stress — position sizing reduced to 50%",
+        "HIGH_STRESS": "High stress — 25% sizing only",
+        "CRISIS":      "CRISIS regime — monitoring only, new entries halted",
     }.get(regime_state, "Unknown regime")
-    
-    # Build markdown
+
+    skew_signals = skew_signals or []
+    actionable   = [s for s in skew_signals if s.signal in ("SHORT", "LONG")]
+    warming_up   = [s for s in skew_signals if s.signal == "INSUFFICIENT_DATA"]
+    shorts       = [s for s in actionable if s.signal == "SHORT"]
+    longs        = [s for s in actionable if s.signal == "LONG"]
+
     lines = []
-    
-    # Header with purpose
+
+    # ── Header ────────────────────────────────────────────────────────────────
     lines.append("# ShiftInnerV Sentinel Briefing")
     lines.append("")
     lines.append(f"**{timestamp}** | Universe: {universe_name}")
     lines.append("")
-    lines.append("> **Purpose:** Daily options skew signal scan. Identifies Dow stocks where the options market is pricing in stress or calm that the equity price has not yet acknowledged.")
+    lines.append("> **Purpose:** Daily options skew signal scan. Identifies stocks where the options market is pricing in stress or calm that the equity price has not yet acknowledged.")
     lines.append("")
 
-    # Market Regime Section (Table)
+    # ── Market Regime ─────────────────────────────────────────────────────────
     lines.append("## 📊 Market Regime")
     lines.append("")
     lines.append("| Signal | Value | Definition |")
     lines.append("|--------|-------|-----------|")
-    lines.append(f"| VIX | {regime_vix:.1f} | Volatility Index (S&P 500). Measures market fear/uncertainty. <20 = calm, 20-30 = elevated, >30 = stress. |")
-    lines.append(f"| Regime | {regime_state} {regime_icon} | Market stress level classification. Determines position sizing risk. |")
-    lines.append(f"| Position Multiplier | {regime_multiplier:.2f}x | Risk adjustment factor. Reduces trade size in stressed markets. 1.0x = full size, 0.5x = half size, 0.25x = quarter size. |")
+    lines.append(f"| VIX | {regime_vix:.1f} | Volatility Index. <20 = calm, 20–30 = elevated, >30 = stress. |")
+    lines.append(f"| Regime | {regime_state} {regime_icon} | Market stress classification. Determines position sizing. |")
+    lines.append(f"| Position Multiplier | {regime_multiplier:.2f}x | 1.0x = full size, 0.5x = half, 0.25x = quarter. |")
     lines.append("")
     lines.append(f"> {regime_icon} **{regime_status}**")
-    lines.append(f"> ")
+    lines.append(">")
     lines.append(f"> {regime_description}")
     lines.append("")
-    
-    # Skew Signals Section
+
+    # ── Skew Signals ──────────────────────────────────────────────────────────
     lines.append("## 🎯 Skew Signals")
     lines.append("")
     lines.append("**Purpose:** Stocks where put skew z-score exceeds ±1.0 — options market diverging from equity price.")
     lines.append("")
     lines.append(f"- **Universe:** {universe_name}")
     lines.append(f"- **Method:** Rolling 10-day z-score of normalised put skew (OTM IV / ATM IV, SPY-normalised)")
-    lines.append(f"- **Entry threshold:** z-score > +1.0 → SHORT | z-score < -1.0 → LONG")
+    lines.append(f"- **Entry:** z > +1.0 → SHORT | z < -1.0 → LONG")
     lines.append(f"- **Exit:** z-score reverts to 0, or 5-day time stop")
     lines.append("")
 
-    skew_signals = skew_signals or []
-    actionable   = [s for s in skew_signals if s.signal in ("SHORT", "LONG")]
-    warming_up   = [s for s in skew_signals if s.signal == "INSUFFICIENT_DATA"]
-
     if actionable:
-        lines.append("**Actionable Signals:**")
+        lines.append(f"**{len(actionable)} Actionable Signal(s) — {len(shorts)} SHORT, {len(longs)} LONG:**")
         lines.append("")
-        lines.append("| Ticker | Signal | Z-Score | Norm Skew | History |")
-        lines.append("|--------|--------|---------|-----------|---------|")
+        lines.append("| Ticker | Company | Signal | Z-Score | Norm Skew | History |")
+        lines.append("|--------|---------|--------|---------|-----------|---------|")
+        names = ticker_names or {}
         for s in sorted(actionable, key=lambda x: abs(x.z_score or 0), reverse=True):
-            arrow  = "⬇ SHORT" if s.signal == "SHORT" else "⬆ LONG"
-            z_str  = f"{s.z_score:+.2f}" if s.z_score is not None else "N/A"
-            ns_str = f"{s.norm_skew:.3f}" if s.norm_skew is not None else "N/A"
-            lines.append(f"| {s.ticker} | {arrow} | {z_str} | {ns_str} | {s.history_days}d |")
+            arrow   = "⬇ SHORT" if s.signal == "SHORT" else "⬆ LONG"
+            z_str   = f"{s.z_score:+.2f}" if s.z_score is not None else "N/A"
+            ns_str  = f"{s.norm_skew:.3f}" if s.norm_skew is not None else "N/A"
+            company = names.get(s.ticker, s.ticker)
+            lines.append(f"| {s.ticker} | {company} | {arrow} | {z_str} | {ns_str} | {s.history_days}d |")
         lines.append("")
     else:
         lines.append("**No actionable signals today** — all tickers within normal skew range.")
         lines.append("")
 
     if warming_up:
-        min_hist = min(s.history_days for s in warming_up)
-        lines.append(f"> ⏳ **{len(warming_up)} ticker(s) still warming up** — need {10 - min_hist} more day(s) of history before signalling.")
+        min_hist  = min(s.history_days for s in warming_up)
+        days_left = max(0, 10 - min_hist)
+        lines.append(f"> ⏳ **{len(warming_up)} ticker(s) warming up** — {days_left} more trading day(s) until z-score baseline is established.")
         lines.append("")
 
-    # Screening Results Section
-    lines.append("## 📋 Screening Results")
-    lines.append("")
-    lines.append("**Purpose:** Evaluate each pair against cointegration tests (Johansen), signal-to-noise ratio (SNR ≥ 1.0), and half-life of mean reversion. Identifies statistically sound trade candidates.")
-    lines.append("")
-    lines.append(f"- **Pairs screened:** **100** candidate pairs")
-    
-    if any(screening_counts.values()):
-        ratings = " | ".join([f"{k}={v}" for k, v in screening_counts.items() if v > 0])
-        lines.append(f"- **Rating distribution:** {ratings}")
-    
-    anomaly_count = len(rejected_pairs)
-    lines.append(f"- **Anomalies detected:** **{anomaly_count}** pairs flagged for further investigation")
-    lines.append("")
-    lines.append("> **Anomaly:** A pair that shows unusual statistical behavior (e.g., sudden breakdown of cointegration, mean reversion failure, or SNR collapse). Flagged pairs are sent to the agent for analysis.")
-    lines.append("")
-    
-    # Agent Verdicts Section
-    lines.append("## ⚡ Agent Verdicts")
-    lines.append("")
-    lines.append("**Purpose:** Classify flagged anomalies into actionable decisions. Each anomaly receives an independent AI analysis and verdict.")
-    lines.append("")
-    active_count = verdicts.get('active', 0)
-    monitor_count = verdicts.get('monitor', 0)
-    reject_count = verdicts.get('reject', 0)
-    
-    lines.append(f"- **Anomalies analyzed:** **{anomaly_count}**")
-    lines.append(f"- **ACTIVE:** `{active_count}` (ready to trade — enter new position)")
-    lines.append(f"- **MONITOR:** `{monitor_count}` (watch closely — may resolve soon)")
-    lines.append(f"- **REJECT:** `{reject_count}` (broken — skip until next cycle)")
-    
-    if rejected_pairs:
-        lines.append("")
-        lines.append("**Rejected Pairs (Reasons):**")
-        for p in rejected_pairs[:5]:
-            pair = p['pair'] if 'pair' in p else f"{p.get('ticker1', '?')}/{p.get('ticker2', '?')}"
-            reason = p.get('reason', 'Unknown')
-            lines.append(f"- `{pair}`: {reason}")
-    
-    lines.append("")
-    
-    # Position Status Section
+    # ── Position Status ───────────────────────────────────────────────────────
     lines.append("## 📈 Position Status")
     lines.append("")
-    lines.append("**Purpose:** Report current open positions and monitoring status. Open positions are continuously monitored for SNR deterioration and regime-appropriate sizing.")
-    lines.append("")
     lines.append(f"- **Open positions:** **{open_positions}**")
-    
-    if open_positions > 0:
-        lines.append(f"- **Under regime-aware monitoring:** ✓ Active")
-        lines.append(f"- **Position revalidation:** Enabled (checks for mean-drift breakdowns and SNR decay)")
-    else:
-        lines.append("- **Monitoring:** Inactive (no open positions)")
-    
-    from datetime import timedelta
-    next_run = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    lines.append(f"- **Monitoring:** {'✓ Active' if open_positions > 0 else 'Inactive (no open positions)'}")
     lines.append(f"- **Next screening:** Scheduled for {next_run} (daily cycle)")
     lines.append("")
-    
-    # Action Section
+
+    # ── Recommended Action ────────────────────────────────────────────────────
     lines.append("## ⚡ Recommended Action")
     lines.append("")
-    
+
     if regime_state == "CRISIS":
         lines.append("**🛑 HALT**")
-        lines.append(f"> CRISIS regime detected (VIX {regime_vix:.1f} ≥ 40). No new trade entries. Monitor open positions for forced liquidation risks. Manual intervention may be required.")
-    elif active_count > 0:
-        lines.append(f"**📊 MONITOR & PREPARE**")
-        lines.append(f"> {active_count} active trade signal(s) identified. Review dossier(s) and prepare entry conditions. Respect position multiplier ({regime_multiplier:.2f}x) in trade sizing.")
-    elif monitor_count > 0:
-        lines.append("**👀 WATCH**")
-        lines.append(f"> {monitor_count} pair(s) showing deterioration but not yet rejected. Monitor next 24-48 hours. May resolve or escalate to REJECT.")
+        lines.append(f"> CRISIS regime (VIX {regime_vix:.1f} ≥ 40). No new entries. Monitor open positions only.")
+    elif actionable:
+        names = ticker_names or {}
+        def _label(s):
+            company = names.get(s.ticker)
+            return f"{s.ticker} ({company})" if company and company != s.ticker else s.ticker
+        ticker_summary = "  |  ".join(
+            ([f"⬇ SHORT: {', '.join(_label(s) for s in shorts)}"] if shorts else []) +
+            ([f"⬆ LONG: {', '.join(_label(s) for s in longs)}"] if longs else [])
+        )
+        lines.append("**📊 ACT**")
+        lines.append(f"> {len(actionable)} signal(s) ready: {ticker_summary}")
+        lines.append(f"> Respect position multiplier ({regime_multiplier:.2f}x).")
+    elif warming_up:
+        days_left = max(0, 10 - min(s.history_days for s in warming_up))
+        lines.append("**⏳ WARMING UP**")
+        lines.append(f"> No signals yet — {days_left} more trading day(s) until z-score baseline is established.")
     elif open_positions > 0:
         lines.append("**⏸ HOLD**")
-        lines.append(f"> {open_positions} position(s) currently open. No new signals. Maintain existing positions and revalidation monitoring.")
+        lines.append(f"> {open_positions} position(s) open. No new signals. Monitor for exit conditions.")
     else:
-        lines.append("**⏸ HOLD & WAIT**")
-        lines.append(f"> No anomalies detected, no open positions. Market is stable ({regime_state}, VIX {regime_vix:.1f}). Await next screening cycle.")
-    
+        lines.append("**⏸ WAIT**")
+        lines.append(f"> No signals, no open positions. Market stable (VIX {regime_vix:.1f}). Await next cycle.")
+
     lines.append("")
-    
-    # Key Metrics Reference
+
+    # ── Reference ─────────────────────────────────────────────────────────────
     lines.append("---")
     lines.append("")
     lines.append("## 📚 Reference: Key Metrics")
     lines.append("")
-    lines.append("- **SNR (Signal-to-Noise Ratio):** Strength of cointegration signal. >1.0 is acceptable; >2.0 is strong.")
-    lines.append("- **Correlation:** How closely two currencies move together. Range: -1 to +1. >0.5 suggests strong relationship.")
-    lines.append("- **Half-life:** Expected time for a diverging pair to revert to its mean. Shorter = faster profit potential but higher volatility.")
-    lines.append("- **Johansen Test:** Statistical test for cointegration. Determines if pair prices move together long-term.")
-    lines.append("- **Cointegration:** Two non-stationary series moving together such that their spread is stationary. Foundation for pairs trading.")
+    lines.append("- **Norm Skew:** OTM put IV / ATM put IV for a ticker, divided by SPY's same ratio. Strips market-wide fear, leaving company-specific stress. >1.0 = more fearful than market.")
+    lines.append("- **Z-Score:** How many standard deviations today's norm skew is from its own 10-day average. >+1.0 triggers SHORT, <-1.0 triggers LONG.")
+    lines.append("- **VIX:** S&P 500 implied volatility. Regime multiplier scales position size under stress.")
+    lines.append("- **Time Stop:** Maximum 5-day hold. Closes position regardless of z-score to limit exposure.")
     lines.append("")
-    
-    # Footer
+
+    # ── Footer ────────────────────────────────────────────────────────────────
     lines.append("---")
     lines.append(f"*Generated {timestamp} by ShiftInnerV Sentinel*")
     lines.append(f"*Next report: {next_run} | Universe: {universe_name}*")
-
-    # Dashboard link
-    dashboard_link = "http://localhost:8766"
-    lines.append(f"\n---\n\n📊 **Portfolio Dashboard**: [{dashboard_link}]({dashboard_link})")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("📊 **Portfolio Dashboard**: [http://localhost:8766](http://localhost:8766)")
 
     return "\n".join(lines)
 
 
 def format_rejected_pair(ticker1: str, ticker2: str, gate_failure: str, details: str) -> Dict:
-    """Helper to format a rejected pair for the briefing."""
-    return {
-        'pair': f"{ticker1}/{ticker2}",
-        'reason': f"Gate {gate_failure} — {details}"
-    }
+    """Retained for import compatibility — unused in skew strategy."""
+    return {"pair": f"{ticker1}/{ticker2}", "reason": f"Gate {gate_failure} — {details}"}
