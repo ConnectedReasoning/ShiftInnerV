@@ -229,6 +229,7 @@ knowledge/
 
 # Data & Logs (The Heavy Stuff)
 data/
+compositions/
 logs/
 *.csv
 *.json
