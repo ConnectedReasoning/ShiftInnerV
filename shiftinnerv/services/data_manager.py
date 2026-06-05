@@ -163,3 +163,26 @@ def get_stalest_ticker(staleness_results: dict) -> tuple:
     if not stale_tickers:
         return None, "all_fresh"
     return stale_tickers[0], staleness_results[stale_tickers[0]]
+
+
+# ── Universe helpers (migrated from pair_sourcer) ─────────────────────────────
+
+def load_universe(universe_path: str):
+    """Load ticker universe from a YAML config file.
+
+    Returns the dict under the top-level `universe:` key. Each entry is a
+    category name → list of tickers.
+    """
+    import yaml
+    with open(universe_path) as f:
+        data = yaml.safe_load(f)
+    return data["universe"]
+
+
+def flatten_universe(universe) -> list:
+    """Flatten a universe dict (category → tickers) into a single sorted,
+    deduplicated ticker list."""
+    tickers = []
+    for category_tickers in universe.values():
+        tickers.extend(category_tickers)
+    return sorted(set(tickers))

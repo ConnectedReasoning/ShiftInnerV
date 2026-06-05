@@ -54,26 +54,8 @@ ANOMALY_DIR      = os.path.join(COMPOSITIONS_DIR, "anomalies")
 LOG_PATH         = os.path.join(DATA_DIR, "sentinel.log")
 LOCK_PATH        = os.path.join(DATA_DIR, "sentinel.lock")
 
-MONITOR_PY = os.path.join(PROJECT_DIR, "shiftinnerv", "pipelines", "monitor.py")
-MAIN_PY    = os.path.join(PROJECT_DIR, "main.py")
-PROMOTE_PY = os.path.join(PROJECT_DIR, "promote.py")
-
 SEEN_PATH       = os.path.join(DATA_DIR, "sentinel_seen.txt")
 LEDGER_DB_PATH  = os.path.join(DATA_DIR, "trial_ledger.db")
-
-# ── Startup path verification ─────────────────────────────────────────────────
-_REQUIRED_PATHS = {
-    "MONITOR_PY": MONITOR_PY,
-    "MAIN_PY":    MAIN_PY,
-    "PROMOTE_PY": PROMOTE_PY,
-}
-_missing = [f"{name} → {path}" for name, path in _REQUIRED_PATHS.items()
-            if not os.path.exists(path)]
-if _missing:
-    raise FileNotFoundError(
-        "sentinel.py: subprocess target(s) not found — check path constants:\n"
-        + "\n".join(f"  {m}" for m in _missing)
-    )
 
 
 # ── SentinelContext: Single source of truth for run state ────────────────────
@@ -117,9 +99,6 @@ class SentinelContext:
     promoted_executed: bool = False
 
     # Briefing data
-    sourced_pairs: list = field(default_factory=list)
-    verdicts: dict = field(default_factory=lambda: {'active': 0, 'monitor': 0, 'reject': 0})
-    rejected_pairs: list = field(default_factory=list)
     open_positions_count: int = 0
     vix_level: float = 0.0
 
@@ -248,14 +227,13 @@ def run_subprocess(cmd: list, label: str, log: logging.Logger) -> bool:
 
 
 def latest_promoted() -> str | None:
-    files = sorted(Path(COMPOSITIONS_DIR).glob("promoted_*.yaml"), reverse=True)
-    return str(files[0]) if files else None
+    """Retained for backwards compatibility; unused in skew strategy."""
+    return None
 
 
 def latest_sourced() -> str | None:
-    """Get the most recent sourced_YYYYMMDD.yaml file."""
-    files = sorted(Path(COMPOSITIONS_DIR).glob("sourced_*.yaml"), reverse=True)
-    return str(files[0]) if files else None
+    """Retained for backwards compatibility; unused in skew strategy."""
+    return None
 
 
 # ── STRATEGY: Base class ──────────────────────────────────────────────────────
@@ -291,25 +269,12 @@ class RegimeDetectionStrategy(Strategy):
 
     def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
         from shiftinnerv.sensors.regime_monitor import RegimeDetector, RegimeState
-        from shiftinnerv.services.trial_ledger import load_open_trials
 
         print("\n── Market Regime Detection ─────────────────────────────────────")
-        print("In RegineDetectionStrategy DATA_DIR is ", DATA_DIR)
-        print("In RegineDetectionStrategy LEDGER_DB_PATH is ", LEDGER_DB_PATH)
         detector = RegimeDetector(data_dir=DATA_DIR, logger=log)
 
-        # Load currently open positions for correlation check
-        open_positions = []
-        if os.path.exists(LEDGER_DB_PATH):
-            open_df = load_open_trials(LEDGER_DB_PATH)
-            if open_df is not None and len(open_df) > 0:
-                open_positions = [
-                    (row["ticker1"], row["ticker2"])
-                    for _, row in open_df.iterrows()
-                    if row["ticker1"] and row["ticker2"]
-                ]
-
-        regime = detector.detect_regime(open_positions=open_positions, logger=log)
+        # Skew strategy has no pairs ledger — pass empty list for correlation check
+        regime = detector.detect_regime(open_positions=[], logger=log)
 
         # Store in context
         ctx.regime = regime
@@ -368,8 +333,6 @@ class RegimeDetectionStrategy(Strategy):
                 f"Halting new entries. Manual restart required."
             )
 
-            print(f"\n   Running monitoring only (no new verdicts)...")
-            run_subprocess([sys.executable, MONITOR_PY], "monitor.py (monitoring only)", log)
             ctx.crisis_halt = True
             return False  # Abort execution chain, but main() will see crisis_halt flag
 
@@ -478,7 +441,7 @@ class SkewSignalStrategy(Strategy):
     def execute(self, ctx: "SentinelContext", log: logging.Logger) -> bool:
         try:
             from shiftinnerv.sensors.skew_signal import SkewSignalGenerator
-            from shiftinnerv.pipelines.pair_sourcer import load_universe, flatten_universe
+            from shiftinnerv.services.data_manager import load_universe, flatten_universe
 
             universe_path = ctx.universe_path or os.path.join(PROJECT_DIR, "universe.yaml")
             if not os.path.exists(universe_path):
@@ -527,303 +490,6 @@ class SkewSignalStrategy(Strategy):
 
 # ── STRATEGY: Pair Sourcing ──────────────────────────────────────────────────
 
-class PairSourcingStrategy(Strategy):
-    """
-    Generate intelligent pair composition for today's screening.
-    Non-fatal: returns True even if sourcing fails.
-    """
-
-    def name(self) -> str:
-        return "Intelligent Pair Sourcing"
-
-    def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
-        from shiftinnerv.pipelines.pair_sourcer import source_pairs
-
-        print("\n── Intelligent Pair Sourcing ────────────────────────────────────")
-
-        universe_path = ctx.universe_path or os.path.join(PROJECT_DIR, "universe.yaml")
-        if not os.path.exists(universe_path):
-            log.warning(f"[pair_sourcing] universe file not found: {universe_path}")
-            print("  universe file not found — skipping pair sourcing")
-            return True
-
-        output_path = os.path.join(
-            COMPOSITIONS_DIR,
-            f"sourced_{date.today().strftime('%Y%m%d')}.yaml"
-        )
-
-        # Skip if already generated today
-        if os.path.exists(output_path):
-            mtime = datetime.fromtimestamp(os.path.getmtime(output_path))
-            if mtime.date() == date.today():
-                log.info(f"[pair_sourcing] Using existing sourced composition: {output_path}")
-                print(f"  ✓ Using existing sourced composition (generated {mtime.strftime('%H:%M')})")
-                ctx.sourced_composition_path = output_path
-                return True
-
-        log.info("[pair_sourcing] START")
-        print("  Generating intelligent pairs (correlation clustering + decay detection)...")
-
-        # Load universe config for universe-specific parameters (e.g. lookback_years)
-        try:
-            with open(universe_path) as _uf:
-                _universe_cfg = yaml.safe_load(_uf) or {}
-        except Exception:
-            _universe_cfg = {}
-
-        try:
-            source_pairs(
-                universe_path=universe_path,
-                output_path=output_path,
-                top_n=100,
-                lookback_years=_universe_cfg.get("lookback_years", 3),
-                min_correlation=0.3,
-                n_clusters=15,
-                data_dir=DATA_DIR,
-            )
-            log.info(f"[pair_sourcing] OK — {output_path}")
-            print(f"  ✓ Generated {output_path}")
-            ctx.sourced_composition_path = output_path
-            return True
-
-        except Exception as e:
-            import traceback
-            log.error(f"[pair_sourcing] FAIL — {e}\n{traceback.format_exc()}")
-            print(f"  ✗ Pair sourcing failed: {e}")
-            print(f"    Reason: {type(e).__name__}: {e}")
-            print(f"    Continuing without sourced composition")
-            return True  # Non-fatal
-
-
-# ── STRATEGY: Monitor ────────────────────────────────────────────────────────
-
-class MonitorStrategy(Strategy):
-    """
-    Run monitor.py to screen pairs and detect anomalies.
-    Can run either sourced composition or default anomaly detection.
-    """
-
-    def name(self) -> str:
-        return "Anomaly Detection (Monitor)"
-
-    def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
-        if ctx.sourced_composition_path:
-            # Run anomaly detection (correlation decay) against the compositions dir.
-            # The sourced YAML lives in COMPOSITIONS_DIR, so the default monitor path
-            # will pick it up, detect correlation anomalies, and write anomaly YAMLs
-            # for the AnomalyProcessingStrategy to consume.
-            # --min-score 45 additionally flags SOLID/STRONG/PRIME pairs as signals
-            # so the gate evaluator pipeline runs even when no decay episode is active.
-            # NOTE: --screen is a diagnostic tool only — it scores but does NOT write
-            # anomaly YAMLs and therefore produces nothing for the agent pipeline.
-            log.info(f"[monitor] Running anomaly detection on compositions dir (sourced: {ctx.sourced_composition_path})")
-            print(f"\n── Monitor (Sourced Pairs) ──────────────────────────────────────")
-
-            # MIN_SCORE_FOR_SIGNAL: pairs scoring >= this are forwarded to the agent.
-            # Default 25 — deliberately permissive for research/candidate surfacing.
-            # Raise to 45 (SOLID) or 60 (STRONG) for production capital deployment.
-            # Override: export MIN_SCORE_FOR_SIGNAL=45
-            #
-            # Research mode env vars (set in ~/.shiftinnerv_env or shell):
-            #   JOHANSEN_LAG_STRATEGY=standard  (k=1 only, more passes)
-            #   JOHANSEN_DET_ORDER=best          (try det_order 0 and 1, use better)
-            #   GATE1_CI_OVERRIDE=90             (90% CI instead of 95%)
-            min_score_signal = float(os.getenv("MIN_SCORE_FOR_SIGNAL", "25"))
-
-            ok = run_subprocess(
-                [sys.executable, MONITOR_PY,
-                 "--compositions", COMPOSITIONS_DIR,
-                 "--workers", "10",
-                 "--min-score", str(min_score_signal)],
-                "monitor.py (sourced pairs)",
-                log
-            )
-        else:
-            print(f"\n── Monitor (Default Anomalies) ──────────────────────────────────")
-            ok = run_subprocess([sys.executable, MONITOR_PY], "monitor.py", log)
-
-        ctx.monitor_success = ok
-        return ok  # Abort if monitor fails
-
-
-# ── STRATEGY: Position Revalidation ──────────────────────────────────────────
-
-class PositionRevalidationStrategy(Strategy):
-    """
-    Revalidate all open positions for SNR deterioration and mean drift.
-    Non-fatal: continues even if revalidation fails.
-    """
-
-    def name(self) -> str:
-        return "Position Revalidation"
-
-    def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
-        from shiftinnerv.sensors.position_monitor import revalidate_open_positions
-        from shiftinnerv.services.trial_ledger import record_position_revalidation
-
-        print("\n── Position Revalidation ────────────────────────────────────────")
-
-        if not os.path.exists(LEDGER_DB_PATH):
-            log.warning(f"[position_revalidation] Trial ledger not found: {LEDGER_DB_PATH}")
-            print("  Trial ledger not found — skipping revalidation.")
-            return True
-
-        results = revalidate_open_positions(
-            db_path=LEDGER_DB_PATH,
-            data_dir=DATA_DIR,
-            logger=log,
-        )
-
-        if not results:
-            print("  No open positions to revalidate.")
-            return True
-
-        ctx.revalidation_results = results
-        ctx.auto_close_count = sum(1 for r in results if r.decision == "AUTO_CLOSE")
-        ctx.monitor_count    = sum(1 for r in results if r.decision == "MONITOR")
-        ctx.hold_count       = sum(1 for r in results if r.decision == "HOLD")
-        error_count          = sum(1 for r in results if r.error is not None)
-
-        print(f"  Revalidated {len(results)} open position(s)")
-        if ctx.hold_count       > 0: print(f"  ✓  {ctx.hold_count} position(s) to HOLD")
-        if ctx.monitor_count    > 0: print(f"  👀 {ctx.monitor_count} position(s) flagged for MONITOR")
-        if ctx.auto_close_count > 0: print(f"  ⚠️  {ctx.auto_close_count} position(s) triggered AUTO_CLOSE")
-        if error_count          > 0: print(f"  ✗  {error_count} position(s) skipped (data/error)")
-
-        log.info(
-            f"[position_revalidation] {len(results)} checked — "
-            f"{ctx.hold_count} HOLD | {ctx.monitor_count} MONITOR | "
-            f"{ctx.auto_close_count} AUTO_CLOSE | {error_count} errors"
-        )
-
-        # Persist results to revalidation history table
-        for result in results:
-            if result.error is not None:
-                continue
-            record_position_revalidation(
-                db_path=LEDGER_DB_PATH,
-                verdict_id=result.verdict_id,
-                snr_entry=result.entry_snr,
-                snr_current=result.current_snr,
-                snr_change_bps=result.snr_change_bps,
-                mean_drift_sigma=result.mean_drift_sigma,
-                drift_detected=result.drift_detected,
-                decision=result.decision,
-                rationale=result.rationale,
-                days_held=result.days_held,
-            )
-
-        return True  # Non-fatal
-
-
-# ── STRATEGY: Anomaly Processing ────────────────────────────────────────────
-
-class AnomalyProcessingStrategy(Strategy):
-    """
-    Load and process new anomaly yamls through main.py.
-    Tracks which anomalies have been seen.
-
-    By default only processes anomaly YAMLs generated TODAY, which keeps
-    daily runs fast (3-4 pairs ~2-3 min) regardless of stale file accumulation.
-
-    Override with env var:
-        ANOMALY_REPROCESS_DAYS=3   — process files from the last N days
-        ANOMALY_REPROCESS_DAYS=0   — process ALL files (legacy behaviour)
-    """
-
-    def name(self) -> str:
-        return "Anomaly Processing"
-
-    def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
-        print("\n── Anomaly Processing ──────────────────────────────────────────")
-
-        ctx.seen_anomalies = load_seen()
-        all_yaml = sorted(Path(ANOMALY_DIR).glob("anomaly_*.yaml"))
-
-        # ── Date filter ───────────────────────────────────────────────────────
-        # Only process files generated within the last N days.
-        # Default: today only (ANOMALY_REPROCESS_DAYS=1).
-        # Set to 0 to disable the filter entirely.
-        _reprocess_days = int(os.getenv("ANOMALY_REPROCESS_DAYS", "1"))
-        if _reprocess_days > 0:
-            _cutoff = datetime.now() - timedelta(days=_reprocess_days - 1)
-            _cutoff_str = _cutoff.strftime("%Y-%m-%d")
-            all_yaml = [
-                f for f in all_yaml
-                if _cutoff_str <= f.stem.rsplit("_", 1)[-1] <= datetime.now().strftime("%Y-%m-%d")
-            ]
-
-        # Dedup by pair+lookback key, not full path
-        def _yaml_key(path: str) -> str:
-            stem = Path(path).stem
-            parts = stem.rsplit("_", 1)
-            return parts[0]
-
-        seen_keys = {_yaml_key(p) for p in ctx.seen_anomalies}
-        ctx.new_anomalies = [str(f) for f in all_yaml if _yaml_key(str(f)) not in seen_keys]
-
-        if ctx.new_anomalies:
-            log.info(f"New anomaly files: {len(ctx.new_anomalies)}")
-            print(f"  Found {len(ctx.new_anomalies)} new anomaly file(s)")
-            for path in ctx.new_anomalies:
-                label = os.path.basename(path)
-                ok    = run_subprocess(
-                    [sys.executable, MAIN_PY, "--pairs", path],
-                    f"main.py [{label}]",
-                    log,
-                )
-                ctx.seen_anomalies.add(_yaml_key(path))
-                save_seen(ctx.seen_anomalies)
-                if not ok:
-                    log.warning(f"main.py non-zero for {label} — marked seen, continuing.")
-                else:
-                    ctx.processed_anomalies_count += 1
-        else:
-            print("  No new anomaly files.")
-            log.info("No new anomaly files.")
-
-        return True  # Non-fatal
-
-
-# ── STRATEGY: Promoted Composition ──────────────────────────────────────────
-
-class PromotedCompositionStrategy(Strategy):
-    """
-    Run promoted composition (morning only).
-    Non-fatal: continues even if promoted run fails.
-    """
-
-    def name(self) -> str:
-        return "Promoted Composition"
-
-    def execute(self, ctx: SentinelContext, log: logging.Logger) -> bool:
-        if not ctx.promoted_flag:
-            return True
-
-        print("\n── Promoted Composition ─────────────────────────────────────────")
-
-        log.info("Promoted run requested — refreshing promote.py...")
-        print("  Refreshing promote.py...")
-        run_subprocess([sys.executable, PROMOTE_PY, "--quiet"], "promote.py", log)
-
-        promoted = latest_promoted()
-        if promoted:
-            log.info(f"Running promoted: {os.path.basename(promoted)}")
-            print(f"  Running promoted: {os.path.basename(promoted)}")
-            ok = run_subprocess(
-                [sys.executable, MAIN_PY, "--pairs", promoted],
-                f"main.py [promoted]",
-                log,
-            )
-            ctx.promoted_path = promoted
-            ctx.promoted_executed = ok
-            return True  # Non-fatal
-        else:
-            log.warning("No promoted yaml found — skipping.")
-            print("  No promoted yaml found — skipping.")
-            return True
-
-
 # ── STRATEGY: AI Summary ────────────────────────────────────────────────────
 
 class AISummaryStrategy(Strategy):
@@ -856,6 +522,9 @@ class AISummaryStrategy(Strategy):
 
 
 # ── STRATEGY: Briefing Generation ──────────────────────────────────────────
+# ── Dead strategy classes removed (PairSourcing, Monitor, PositionRevalidation,
+#    AnomalyProcessing, PromotedComposition, AISummary) — pairs trading paradigm.
+#    Current chain: RegimeDetection → SkewSnapshot → SkewSignal → Briefing.
 
 class BriefingStrategy(Strategy):
     """
@@ -872,46 +541,8 @@ class BriefingStrategy(Strategy):
         try:
             from shiftinnerv.reporting.briefing_generator import generate_sentinel_briefing
 
-            # Parse sourced_composition.yaml for top pairs
-            sourced_yaml = latest_sourced()
-            if sourced_yaml and os.path.exists(sourced_yaml):
-                try:
-                    with open(sourced_yaml) as f:
-                        lines = f.readlines()
-
-                        # Extract top 5 pairs with scores from header comments
-                        # Ticker pattern includes '=' for FX tickers like EURUSD=X
-                        for line in lines:
-                            if line.startswith('#') and '/' in line and 'score=' in line:
-                                match = re.search(
-                                    r'#\s+([\w.=-]+)\s+/\s+([\w.=-]+)\s+score=([\d.]+)\s+corr=([\d.]+)',
-                                    line
-                                )
-                                if match:
-                                    ticker1, ticker2, score, corr = match.groups()
-                                    if len(ctx.sourced_pairs) < 5:
-                                        ctx.sourced_pairs.append({
-                                            'ticker1': ticker1,
-                                            'ticker2': ticker2,
-                                            'score': float(score),
-                                            'corr': float(corr)
-                                        })
-                            if len(ctx.sourced_pairs) >= 5:
-                                break
-                except Exception as e:
-                    log.debug(f"Could not parse sourced yaml: {e}")
-
-            # Load open positions count
-            ctx.open_positions_count = 0
-            try:
-                if os.path.exists(LEDGER_DB_PATH):
-                    conn = sqlite3.connect(LEDGER_DB_PATH)
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM trial_ledger WHERE is_closed=0")
-                    ctx.open_positions_count = cursor.fetchone()[0]
-                    conn.close()
-            except Exception as e:
-                log.debug(f"Could not count open positions: {e}")
+            # Skew strategy has no open positions ledger yet — leave at 0.
+            # When position tracking is added for skew trades, populate ctx.open_positions_count here.
 
             # Generate and print briefing
             try:
@@ -936,10 +567,10 @@ class BriefingStrategy(Strategy):
                     regime_state=ctx.regime_state,
                     regime_vix=ctx.vix_level,
                     regime_multiplier=ctx.position_size_multiplier,
-                    sourced_pairs=ctx.sourced_pairs,
+                    sourced_pairs=[],          # unused — kept for signature compatibility
                     screening_counts={},
-                    verdicts=ctx.verdicts,
-                    rejected_pairs=ctx.rejected_pairs,
+                    verdicts={},
+                    rejected_pairs=[],
                     open_positions=ctx.open_positions_count,
                     universe_name=ctx.universe_name,
                     skew_signals=getattr(ctx, "skew_signals", []),
@@ -1023,19 +654,10 @@ class SentinelOrchestrator:
 def print_config():
     print("ShiftInnerV Sentinel — configuration")
     print(f"  Project dir  : {PROJECT_DIR}")
-    print(f"  Compositions : {COMPOSITIONS_DIR}")
-    print(f"  Anomaly dir  : {ANOMALY_DIR}")
     print(f"  Data dir     : {DATA_DIR}")
     print(f"  Log          : {LOG_PATH}")
     print(f"  Lock         : {LOCK_PATH}")
     print(f"  Seen file    : {SEEN_PATH}")
-    print(f"  monitor.py   : {'✅' if os.path.exists(MONITOR_PY) else '❌ NOT FOUND'}")
-    print(f"  main.py      : {'✅' if os.path.exists(MAIN_PY) else '❌ NOT FOUND'}")
-    print(f"  promote.py   : {'✅' if os.path.exists(PROMOTE_PY) else '❌ NOT FOUND'}")
-    pos_monitor_path = os.path.join(PROJECT_DIR, "shiftinner", "sensors", "position_monitor.py")
-    regime_monitor_path = os.path.join(PROJECT_DIR, "shiftinner", "sensors", "regime_monitor.py")
-    print(f"  position_monitor.py : {'✅' if os.path.exists(pos_monitor_path) else '❌ NOT FOUND'}")
-    print(f"  regime_monitor.py   : {'✅' if os.path.exists(regime_monitor_path) else '❌ NOT FOUND'}  (Item 8)")
     print(f"  trial_ledger : {'✅' if os.path.exists(LEDGER_DB_PATH) else '⚠️  not created yet'}")
 
 
