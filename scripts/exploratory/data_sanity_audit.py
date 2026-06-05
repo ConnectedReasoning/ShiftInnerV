@@ -4,7 +4,9 @@ import yfinance as yf
 from dotenv import load_dotenv
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
-data_dir = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
+PROJECT_DIR  = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR     = os.path.join(PROJECT_DIR, "data")
+data_dir     = DATA_DIR
 
 # Layer 1: Macro Signal Basket
 MACRO_TICKERS = {

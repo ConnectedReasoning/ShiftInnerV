@@ -68,7 +68,6 @@ universe:
     - GLW       # Corning
     - KEYS      # Keysight Technologies
     - FFIV      # F5 Networks
-    - JNPR      # Juniper Networks
     - NTAP      # NetApp
     - STX       # Seagate
     - WDC       # Western Digital
@@ -90,7 +89,6 @@ universe:
     - PARA      # Paramount Global
     - WBD       # Warner Bros Discovery
     - OMC       # Omnicom Group
-    - IPG       # Interpublic Group
     - TTWO      # Take-Two Interactive
     - EA        # Electronic Arts
     - MTCH      # Match Group
@@ -155,7 +153,6 @@ universe:
     - MO        # Altria
     - MDLZ      # Mondelez
     - GIS       # General Mills
-    - K         # Kellogg's
     - CPB       # Campbell Soup
     - SJM       # J.M. Smucker
     - HRL       # Hormel Foods
@@ -206,7 +203,6 @@ universe:
     - CI        # Cigna
     - MCK       # McKesson
     - CAH       # Cardinal Health
-    - ABC       # AmerisourceBergen
     - IDXX      # IDEXX Laboratories
     - IQV       # IQVIA Holdings
     - A         # Agilent Technologies
@@ -231,7 +227,6 @@ universe:
     - V         # Visa
     - MA        # Mastercard
     - COF       # Capital One
-    - DFS       # Discover Financial
     - SYF       # Synchrony Financial
     - BK        # Bank of New York Mellon
     - STT       # State Street
@@ -260,7 +255,7 @@ universe:
     - MMC       # Marsh & McLennan
     - AON       # Aon
     - WTW       # Willis Towers Watson
-    - RE        # Everest Re
+    - EG  # was RE (renamed)
     - RNR       # RenaissanceRe
     - SPGI      # S&P Global
     - MCO       # Moody's
@@ -281,7 +276,6 @@ universe:
     - LHX       # L3Harris Technologies
     - TDG       # TransDigm Group
     - HWM       # Howmet Aerospace
-    - SPR       # Spirit AeroSystems
     - UPS       # United Parcel Service
     - FDX       # FedEx
     - EXPD      # Expeditors International
@@ -329,12 +323,9 @@ universe:
     - VLO       # Valero Energy
     - PSX       # Phillips 66
     - OXY       # Occidental Petroleum
-    - PXD       # Pioneer Natural Resources
     - DVN       # Devon Energy
     - FANG      # Diamondback Energy
-    - HES       # Hess Corporation
     - APA       # APA Corporation
-    - MRO       # Marathon Oil
     - OKE       # ONEOK
     - WMB       # Williams Companies
     - KMI       # Kinder Morgan
@@ -367,7 +358,7 @@ universe:
     - FMC       # FMC Corporation
     - PKG       # Packaging Corp of America
     - IP        # International Paper
-    - WRK       # WestRock
+    - SW  # was WRK (renamed)
     - SON       # Sonoco Products
 
   # ── Real Estate ─────────────────────────────────────────────────────────────
@@ -393,7 +384,7 @@ universe:
     - IRM       # Iron Mountain
     - WELL      # Welltower
     - VTR       # Ventas
-    - PEAK      # Healthpeak Properties
+    - DOC  # was PEAK (renamed)
     - ARE       # Alexandria Real Estate
     - BXP       # Boston Properties
     - KIM       # Kimco Realty
@@ -422,7 +413,7 @@ universe:
     - EVRG      # Evergy
     - AES       # AES Corporation
     - AWK       # American Water Works
-    - WTR       # Artesian Resources
+    - WTRG  # was WTR (renamed)
     - SRE       # Sempra Energy
     - CNP       # CenterPoint Energy
     - NRG       # NRG Energy

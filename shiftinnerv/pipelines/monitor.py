@@ -37,16 +37,17 @@ from shiftinnerv.domain.cost_model import (
 )
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
 
-data_dir   = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
-report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
-db_path    = os.path.join(data_dir, "anomalies.db")
+report_dir = os.path.join(DATA_DIR, "exports")
+db_path    = os.path.join(DATA_DIR, "anomalies.db")
 
 
 # ── Database setup ────────────────────────────────────────────────────────────
 
 def init_db():
-    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS anomalies (
@@ -352,9 +353,6 @@ from shiftinnerv.domain.spread_math import (
     compute_johansen_trend,
     score_label,
 )
-
-# Project root — two levels up from shiftinnerv/pipelines/
-_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 
 
 def write_anomaly_yaml(flagged: list, compositions_dir: str) -> list:
@@ -761,7 +759,7 @@ def main():
 
     compositions_dir = os.path.expanduser(
         args.compositions or
-        os.path.join(_PROJECT_ROOT, "compositions")
+        os.path.join(PROJECT_DIR, "compositions")
     )
 
     if args.loop:

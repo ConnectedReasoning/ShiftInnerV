@@ -18,7 +18,7 @@ Output:
 Env (from ~/.shiftinnerv_env):
     ANTHROPIC_API_KEY       Claude API key
     REPORT_DIR              where sentinel writes reports
-    DATA_STORAGE_PATH       base data dir
+    DATA_DIR       base data dir
 """
 
 import os
@@ -33,14 +33,12 @@ load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
-
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+REPORT_DIR         = os.path.join(PROJECT_DIR, "reports")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-REPORT_DIR        = os.path.expanduser(
-    os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports")
-)
-DATA_DIR          = os.path.expanduser(
-    os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data")
-)
+
+
 SUMMARY_DIR       = os.path.join(DATA_DIR, "summaries")
 MODEL             = "claude-sonnet-4-20250514"
 MAX_TOKENS        = 2000

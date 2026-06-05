@@ -30,8 +30,8 @@ import yaml
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, str(PROJECT_DIR))
 
 from shiftinnerv.pipelines.monitor import analyze_pair
 
@@ -394,17 +394,17 @@ def main():
     )
     parser.add_argument(
         "--compositions",
-        default=str(PROJECT_ROOT / "compositions"),
+        default=os.path.join(PROJECT_DIR, "compositions"),
         help="Path to compositions directory",
     )
     parser.add_argument(
         "--output",
-        default=str(PROJECT_ROOT / "lookback_sensitivity_report.md"),
+        default=os.path.join(PROJECT_DIR, "lookback_sensitivity_report.md"),
         help="Output markdown report path",
     )
     parser.add_argument(
         "--csv",
-        default=str(PROJECT_ROOT / "lookback_sensitivity.csv"),
+        default=os.path.join(PROJECT_DIR, "lookback_sensitivity.csv"),
         help="Output CSV path",
     )
     parser.add_argument(

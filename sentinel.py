@@ -25,7 +25,7 @@ Lock file:
     This prevents launchd overlap if a run takes longer than the schedule interval.
 
 Env (from ~/.shiftinnerv_env):
-    DATA_STORAGE_PATH   base data dir (default ~/Projects/ShiftInnerV_Data)
+    DATA_DIR   base data dir (default ~/Projects/ShiftInnerV_Data)
     TIINGO_KEY          Tiingo API key
     REPORT_DIR          report output dir
 """
@@ -294,7 +294,8 @@ class RegimeDetectionStrategy(Strategy):
         from shiftinnerv.services.trial_ledger import load_open_trials
 
         print("\n── Market Regime Detection ─────────────────────────────────────")
-
+        print("In RegineDetectionStrategy DATA_DIR is ", DATA_DIR)
+        print("In RegineDetectionStrategy LEDGER_DB_PATH is ", LEDGER_DB_PATH)
         detector = RegimeDetector(data_dir=DATA_DIR, logger=log)
 
         # Load currently open positions for correlation check
@@ -949,11 +950,10 @@ class BriefingStrategy(Strategy):
                 print(briefing)
 
                 # Write to file
-                report_dir = os.path.expanduser(
-                    os.getenv("REPORT_DIR", os.path.join(DATA_DIR, "reports"))
-                )
-                os.makedirs(report_dir, exist_ok=True)
 
+                report_dir = os.path.join(DATA_DIR, "reports")
+                os.makedirs(report_dir, exist_ok=True)
+                print("THIS IS WHERE THE REPORT IS WRITTEN! == ", report_dir)
                 briefing_path = os.path.join(
                     report_dir,
                     f"briefing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"

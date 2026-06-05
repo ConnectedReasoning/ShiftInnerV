@@ -9,13 +9,17 @@ Usage:
 The page re-reads the database on every request; no files are written to disk.
 Live prices are fetched via yfinance for open positions.
 """
-
+import os
 import argparse
 import sqlite3
 import sys
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
+
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+LEDGER_DB        = os.path.join(DATA_DIR, "trial_ledger.db")
 
 # ── Colours & styles ──────────────────────────────────────────────────────────
 BG        = "#0d0d0d"
@@ -35,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="ShiftInnerV Portfolio Dashboard")
     p.add_argument(
         "--db",
-        default="/Volumes/Elessar/ShiftInnerV_Data/trial_ledger.db",
+        default=LEDGER_DB,
         help="Path to trial_ledger.db",
     )
     p.add_argument("--port", type=int, default=8766, help="HTTP port (default 8766)")

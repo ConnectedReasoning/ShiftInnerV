@@ -29,8 +29,9 @@ import numpy as np
 import pandas as pd
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+sys.path.insert(0, str(PROJECT_DIR))
 
 try:
     from dotenv import load_dotenv
@@ -38,11 +39,9 @@ try:
 except ImportError:
     pass
 
-DEFAULT_DB = os.path.expanduser(
-    os.getenv("DATA_STORAGE_PATH",
-              "/Volumes/Elessar/ShiftInnerV_Data") + "/anomalies.db"
+DEFAULT_DB = os.path.join(DATA_DIR, "anomalies.db")
 )
-DEFAULT_OUT = str(PROJECT_ROOT / "threshold_sensitivity_report.md")
+DEFAULT_OUT = os.path.join(DATA_DIR, "threshold_sensitivity_report.md")
 
 # ── Current threshold values (single source of truth) ─────────────────────────
 THRESHOLDS = {

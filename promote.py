@@ -33,10 +33,9 @@ import argparse
 from datetime import datetime, timedelta
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
-DB_PATH          = os.path.expanduser(
-    os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data") + "/anomalies.db"
-)
-COMPOSITIONS_DIR = os.path.join(os.path.dirname(__file__), "compositions")
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+COMPOSITIONS_DIR = os.path.join(PROJECT_DIR,  "compositions")
 
 MAX_HALF_LIFE    = 120    # days — Gate 2 from Signal Mathematician
 MIN_HALF_LIFE    = 5      # days — below this is noise / data artifact
@@ -233,7 +232,7 @@ def run(
     Main entry point — callable from main.py or CLI.
     Returns output path if file was written, None on dry-run or no candidates.
     """
-    db = db_path or DB_PATH
+    db = db_path or DATA_DIR
 
     filters = dict(
         max_hl=max_hl, min_hl=min_hl, min_snr=min_snr,
@@ -281,7 +280,7 @@ def main():
         description="ShiftInnerV — Promote best screening candidates to a composition"
     )
     parser.add_argument("--db",          type=str,   default=None,
-                        help=f"Path to anomalies.db (default: {DB_PATH})")
+                        help=f"Path to anomalies.db (default: {DATA_DIR})")
     parser.add_argument("--output",      type=str,   default=None,
                         help="Output yaml path (default: compositions/promoted_<timestamp>.yaml)")
     parser.add_argument("--top",         type=int,   default=DEFAULT_TOP_N,

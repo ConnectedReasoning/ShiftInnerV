@@ -2,13 +2,15 @@
 """
 Asset class diagnostic query — Compare Treasury, Currency, and Equity pair performance
 """
-
+import os
 import sqlite3
 import pandas as pd
 from pathlib import Path
 
 # Update this path to your actual data location
-db_path = '/Volumes/Elessar/ShiftInnerV_Data/anomalies.db'
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+db_path = DATA_DIR
 
 # Check if database exists
 if not Path(db_path).exists():

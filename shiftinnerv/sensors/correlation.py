@@ -15,7 +15,11 @@ from shiftinnerv.domain.cost_model import (
 )
 
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
-data_dir = os.getenv("DATA_STORAGE_PATH", "/Volumes/Elessar/ShiftInnerV_Data")
+
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+
+data_dir = DATA_DIR
 
 # ── Category-to-factor-proxy map (Item 12 — Gate 6) ─────────────────────────
 # Maps composition label keywords to representative sector ETFs.

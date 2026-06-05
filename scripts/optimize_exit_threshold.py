@@ -40,8 +40,9 @@ from statsmodels.tools import add_constant
 
 # ── Project setup ─────────────────────────────────────────────────────────────
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+sys.path.insert(0, str(PROJECT_DIR))
 
 try:
     from dotenv import load_dotenv
@@ -53,10 +54,9 @@ except ImportError:
 
 # Support both env-var spellings (audit_active_verdicts.py convention)
 TIINGO_KEY = os.getenv("TIINGO_KEY", "") or os.getenv("TIINGA_KEY", "")
-DATA_STORAGE = os.getenv("DATA_STORAGE_PATH",
-                         "/Volumes/Elessar/ShiftInnerV_Data")
-DEFAULT_DB  = os.path.join(DATA_STORAGE, "trial_ledger.db")
-DEFAULT_OUT = str(PROJECT_ROOT / "optimize_exit_threshold_report.md")
+
+DEFAULT_DB  = os.path.join(DATA_DIR, "trial_ledger.db")
+DEFAULT_OUT = os.path.join(PROJECT_DIR, "optimize_exit_threshold_report.md")
 
 TIINGO_BASE    = "https://api.tiingo.com"
 TIINGO_HEADERS = {"Content-Type": "application/json"}

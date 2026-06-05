@@ -41,10 +41,9 @@ load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-PROJECT_DIR = Path(__file__).parent.parent
-DATA_DIR    = Path(os.getenv("DATA_STORAGE_PATH",
-                             "~/projects/ShiftInnerV_Data")).expanduser()
-COMP_DIR    = PROJECT_DIR / "compositions"
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR    = os.path.join(PROJECT_DIR, "data")
+COMP_DIR    = os.path.join("compositions")
 
 # ── Sector ETFs (always included, paired cross-sector intentionally) ──────────
 

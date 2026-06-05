@@ -25,9 +25,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
 from dotenv import load_dotenv
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
@@ -35,11 +32,12 @@ from shiftinnerv.services.trial_ledger import load_closed_trials, get_ledger_sum
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DATA_STORAGE = os.path.expanduser(
-    os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data")
-)
-DEFAULT_DB  = os.path.join(DATA_STORAGE, "trial_ledger.db")
-DEFAULT_OUT = str(PROJECT_ROOT / "dsr_report.md")
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, str(PROJECT_DIR))
+DATA_DIR    = os.path.join(PROJECT_DIR, "data")
+
+DEFAULT_DB  = os.path.join(DATA_DIR, "trial_ledger.db")
+DEFAULT_OUT = os.path.join(PROJECT_DIR,  "dsr_report.md")
 
 MIN_TRIALS_DEFAULT = 50
 TRADING_DAYS_PER_YEAR = 250

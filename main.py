@@ -30,8 +30,11 @@ from shiftinnerv.sensors.composition_monitor import (
     check_composition_concentration,
 )
 
-data_dir   = os.path.expanduser(os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data"))
-report_dir = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+
+data_dir   = DATA_DIR
+report_dir = os.path.join(PROJECT_DIR,"reports")
 os.makedirs(report_dir, exist_ok=True)
 
 # ── Item 5: Staleness threshold ───────────────────────────────────────────────

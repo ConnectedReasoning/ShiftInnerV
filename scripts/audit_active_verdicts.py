@@ -34,8 +34,9 @@ import requests
 from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+sys.path.insert(0, str(PROJECT_DIR))
 
 from dotenv import load_dotenv
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
@@ -50,11 +51,9 @@ TIINGO_KEY = (
     or os.getenv("TIINGA_KEY", "")  # typo variant in the prompt spec
 )
 
-DATA_STORAGE = os.path.expanduser(
-    os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data")
-)
-DEFAULT_DB  = os.path.join(DATA_STORAGE, "anomalies.db")
-DEFAULT_OUT = str(PROJECT_ROOT / "audit_active_verdicts_report.md")
+
+DEFAULT_DB  = os.path.join(DATA_DIR, "anomalies.db")
+DEFAULT_OUT = os.path.join(PROJECT_DIR, "audit_active_verdicts_report.md")
 
 TIINGO_BASE    = "https://api.tiingo.com"
 TIINGO_HEADERS = {"Content-Type": "application/json"}
@@ -703,9 +702,9 @@ def main() -> None:
         print(f"\n  {verdict_str}")
 
     # ── Close trials in ledger (Item 14) ─────────────────────────────────────
-    ledger_db = os.path.join(DATA_STORAGE, "trial_ledger.db")
+    ledger_db = os.path.join(DATA_DIR, "trial_ledger.db")
     if os.path.exists(ledger_db) and valid:
-        sys.path.insert(0, str(PROJECT_ROOT))
+        sys.path.insert(0, str(PROJECT_DIR))
         try:
             from shiftinnerv.services.trial_ledger import close_trial
             closed_ok = closed_fail = 0

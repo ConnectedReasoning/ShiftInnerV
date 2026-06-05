@@ -100,7 +100,7 @@ def main():
     parser.add_argument(
         "--logfile",
         default=None,
-        help="Path to llm_calls.log (default: auto-detect from DATA_STORAGE_PATH env var)",
+        help="Path to llm_calls.log (default: auto-detect from DATA_DIR)",
     )
     parser.add_argument(
         "--output",
@@ -119,10 +119,9 @@ def main():
         logfile = args.logfile
     else:
         import os
-        data_dir = os.path.expanduser(
-            os.getenv("DATA_STORAGE_PATH", "~/Projects/ShiftInnerV_Data")
-        )
-        logfile = os.path.join(data_dir, "llm_calls.log")
+        PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+        DATA_DIR         = os.path.join(PROJECT_DIR, "data")
+        logfile = os.path.join(DATA_DIR, "llm_calls.log")
 
     if not Path(logfile).exists():
         print(f"❌ Log file not found: {logfile}")

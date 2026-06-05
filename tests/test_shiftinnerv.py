@@ -39,8 +39,8 @@ from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 # Add project root to sys.path so imports resolve without installation
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+PROJECT_DIR      = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, str(PROJECT_DIR))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -680,7 +680,7 @@ class TestItem11WindowSeparation:
     """
 
     def _get_tool_source(self) -> str:
-        src_path = PROJECT_ROOT / "shiftinner" / "sensors" / "correlation.py"
+        src_path = Pos.path.join(PROJECT_DIR,  "shiftinner" , "sensors" ,"correlation.py")
         if not src_path.exists():
             pytest.skip("shiftinner/sensors/correlation.py not found")
         return src_path.read_text()
@@ -795,7 +795,7 @@ class TestItem17MultiLagJohansen:
     """
 
     def _get_tool_source(self) -> str:
-        src_path = PROJECT_ROOT / "shiftinner" / "sensors" / "correlation.py"
+        src_path = os.path.join(PROJECT_DIR, "shiftinner", "sensors", "correlation.py")
         if not src_path.exists():
             pytest.skip("shiftinner/sensors/correlation.py not found")
         return src_path.read_text()
@@ -892,7 +892,7 @@ class TestSentinelLockFile:
     """Regression tests for the sentinel lock file mechanism."""
 
     def _get_sentinel_source(self) -> str:
-        src_path = PROJECT_ROOT / "sentinel.py"
+        src_path = os.path.join(PROJECT_DIR, "sentinel.py")
         if not src_path.exists():
             pytest.skip("sentinel.py not found")
         return src_path.read_text()
@@ -922,20 +922,20 @@ class TestSentinelLockFile:
         """acquire_lock returns True when no lock exists."""
         import importlib.util
         spec = importlib.util.spec_from_file_location(
-            "sentinel", PROJECT_ROOT / "sentinel.py"
+            "sentinel", os.path.join(PROJECT_DIR,  "sentinel.py")
         )
         if spec is None:
             pytest.skip("sentinel.py not found")
 
         # Execute just the lock functions
-        src = (PROJECT_ROOT / "sentinel.py").read_text()
+        src = (os.path.join(PROJECT_DIR,  "sentinel.py")).read_text()
         # Patch LOCK_PATH to tmp location
         lock_path = str(tmp_path / "test.lock")
         src_patched = src.replace(
             'LOCK_PATH        = os.path.join(DATA_DIR, "sentinel.lock")',
             f'LOCK_PATH        = "{lock_path}"'
         )
-        ns = {"__name__": "sentinel_test", "__file__": str(PROJECT_ROOT / "sentinel.py")}
+        ns = {"__name__": "sentinel_test", "__file__": os.path.join(PROJECT_DIR, "sentinel.py")}
         exec(compile(src_patched, "sentinel.py", "exec"), ns)
 
         import logging
@@ -1005,10 +1005,10 @@ class TestPlistConfiguration:
     """
 
     def _find_plists(self):
-        plist_dir = PROJECT_ROOT / "launchd"
+        plist_dir = os.path.join(PROJECT_DIR, "launchd")
         if not plist_dir.exists():
             # Try the project root itself
-            return list(PROJECT_ROOT.glob("*.plist"))
+            return list(PROJECT_DIR.glob("*.plist"))
         return list(plist_dir.glob("*.plist"))
 
     def test_plist_log_path_not_volumes(self):
