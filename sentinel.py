@@ -314,7 +314,7 @@ class RegimeDetectionStrategy(Strategy):
         log.info(
             f"[regime] State={regime.state.value} | VIX={regime.vix_level:.1f} | "
             f"Multiplier={regime.position_size_multiplier}x | "
-            f"Open={len(open_positions)} | Correlated={len(regime.correlated_pairs)}"
+            f"Open=0 | Correlated={len(regime.correlated_pairs)}"
         )
 
         # Propagate to downstream subprocesses via env vars
