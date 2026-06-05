@@ -334,7 +334,7 @@ Only files matching `composition_*.yaml` are tracked for concentration limits. P
 
 ## 11. Databases
 
-ShiftInnerV maintains two SQLite databases in `DATA_STORAGE_PATH`:
+ShiftInnerV maintains two SQLite databases in `DATA_DIR`:
 
 ### `anomalies.db`
 

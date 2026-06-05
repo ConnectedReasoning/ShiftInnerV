@@ -277,7 +277,7 @@ Configure in `~/.shiftinnerv_env`:
 
 ```bash
 # Data storage location
-DATA_STORAGE_PATH=~/Projects/ShiftInnerV_Data
+DATA_DIR=~/Projects/ShiftInnerV/data
 
 # Report output directory
 REPORT_DIR=~/Projects/ShiftInnerV_Data/reports
@@ -303,7 +303,7 @@ DATA_STALENESS_DAYS=3
 
 ## Database Locations
 
-All databases are stored in `$DATA_STORAGE_PATH` (default: `~/Projects/ShiftInnerV_Data/`):
+All databases are stored in `$DATA_DIR` (default: `~/Projects/ShiftInnerV/Data/`):
 
 - **`anomalies.db`** — Screening results from monitor.py
   - Table: `screening_results` (pair, timestamp, score, SNR, half-life, etc.)

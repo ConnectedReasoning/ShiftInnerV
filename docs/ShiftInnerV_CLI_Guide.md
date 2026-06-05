@@ -12,10 +12,10 @@ All scripts read from `~/.shiftinnerv_env`. Critical keys:
 
 | Variable | Used By | Default |
 |---|---|---|
-| `DATA_STORAGE_PATH` | All scripts | `~/Projects/ShiftInnerV_Data` |
+| `DATA_DIR` | All scripts | `~/Projects/ShiftInnerV_Data` |
 | `TIINGO_KEY` | `monitor.py`, `dossier.py`, audit scripts | *(required for price data)* |
 | `ANTHROPIC_API_KEY` | `summarize.py` | *(required for AI summaries)* |
-| `REPORT_DIR` | `dossier.py`, `summarize.py`, `sentinel.py` | `$DATA_STORAGE_PATH/reports` |
+| `REPORT_DIR` | `dossier.py`, `summarize.py`, `sentinel.py` | `$\/reports` |
 | `PRICE_DATA_STALENESS_HOURS` | `main.py` | `26` |
 | `CREWAI_TELEMETRY_OPT_OUT` | `main.py`, `agents.py` | Set to `true` — mandatory |
 
@@ -75,9 +75,9 @@ python sentinel.py --dry-run
 | `--promoted` | After anomaly processing, runs `promote.py` to refresh the focused composition, then runs `main.py` on it |
 | `--dry-run` | Prints path config and flag values, then exits immediately |
 
-**Lock file:** `$DATA_STORAGE_PATH/sentinel.lock` — prevents launchd overlap. If it exists on startup, sentinel exits immediately (previous run still in progress).
+**Lock file:** `$DATA_DIRsentinel.lock` — prevents launchd overlap. If it exists on startup, sentinel exits immediately (previous run still in progress).
 
-**Log file:** `$DATA_STORAGE_PATH/sentinel.log`
+**Log file:** `$DATA_DIR/sentinel.log`
 
 **launchd schedules (from `launchd/` plists):**
 - `07:00` → `python sentinel.py --promoted`
@@ -142,7 +142,7 @@ python monitor.py --compositions ~/my_compositions/
 | `--show-suspicious` | bool | false | Include near-threshold pairs in output |
 
 **Databases written:**
-- `$DATA_STORAGE_PATH/anomalies.db` — `anomalies` table (live anomaly events) and `screening` table (full composition scans)
+- `$DATA_DIR/anomalies.db` — `anomalies` table (live anomaly events) and `screening` table (full composition scans)
 
 ---
 
@@ -191,7 +191,7 @@ python promote.py --quiet
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--db` | path | `$DATA_STORAGE_PATH/anomalies.db` | Source database |
+| `--db` | path | `$DATA_DIR/anomalies.db` | Source database |
 | `--output` | path | `compositions/promoted_<date>.yaml` | Output composition yaml |
 | `--top` | int | 25 | Maximum pairs in output |
 | `--max-hl` | float | 120 | Half-life ceiling in days (tradeable horizon) |
@@ -237,7 +237,7 @@ python dossier.py AAPL MSFT --save --quiet
 
 ### `summarize.py` — AI Run Summarizer
 
-Collects dossier and verdict reports from the latest sentinel run, submits to the Claude API, and returns a ranked trade summary with executive summary, top setups, and skip list. Saves output to `$DATA_STORAGE_PATH/summaries/`.
+Collects dossier and verdict reports from the latest sentinel run, submits to the Claude API, and returns a ranked trade summary with executive summary, top setups, and skip list. Saves output to `$DATA_DIR/summaries/`.
 
 ```bash
 # Summarize the latest run (default: look back 120 minutes)
@@ -388,7 +388,7 @@ python scripts/audit_active_verdicts.py --n 20
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--db` | path | `$DATA_STORAGE_PATH/anomalies.db` | Source database |
+| `--db` | path | `$DATA_DIR/anomalies.db` | Source database |
 | `--output` | path | `audit_active_verdicts_report.md` | Output markdown report |
 | `--n` | int | 10 | Number of recent ACTIVE verdicts to audit |
 | `--verbose` | bool | false | Print detailed per-trade diagnostics |
@@ -419,7 +419,7 @@ python scripts/compute_dsr.py --subsample 10
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--db` | path | `$DATA_STORAGE_PATH/trial_ledger.db` | Source ledger database |
+| `--db` | path | `$DATA_DIR/trial_ledger.db` | Source ledger database |
 | `--output` | path | `dsr_report.md` | Output markdown report |
 | `--min-trials` | int | 50 | Minimum closed trials required before running |
 | `--subsample` | int | 5 | Block size for subsample correlation estimate |
@@ -467,7 +467,7 @@ python scripts/optimize_exit_threshold.py --verbose
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--db` | path | `$DATA_STORAGE_PATH/trial_ledger.db` | Source ledger database |
+| `--db` | path | `$DATA_DIR/trial_ledger.db` | Source ledger database |
 | `--output` | path | `optimize_exit_threshold_report.md` | Output markdown report |
 | `--min-trades` | int | 20 | Minimum simulated trades required for a firm recommendation |
 | `--verbose` | bool | false | Print per-trade diagnostics |
@@ -490,7 +490,7 @@ python scripts/threshold_sensitivity.py --sims 20000
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--db` | path | `$DATA_STORAGE_PATH/anomalies.db` | Source database |
+| `--db` | path | `$DATA_DIR/anomalies.db` | Source database |
 | `--output` | path | `threshold_sensitivity_report.md` | Output markdown report |
 | `--sims` | int | 5000 | Number of OU simulations per threshold combination |
 
@@ -512,7 +512,7 @@ python scripts/measure_llm_malformation.py --agent "Lead Quantitative Scout"
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--logfile` | path | `$DATA_STORAGE_PATH/llm_calls.log` | Input log file |
+| `--logfile` | path | `$DATA_DIR/llm_calls.log` | Input log file |
 | `--output` | path | `llm_malformation_report.txt` | Output report file |
 | `--agent` | string | — | Filter analysis to a specific agent name |
 
@@ -540,7 +540,7 @@ Most scripts write markdown reports. The naming patterns are consistent:
 |---|---|---|
 | `verdict_<T1>_<T2>_<timestamp>.md` | `main.py` | `REPORT_DIR` |
 | `dossier_<T1>_<T2>_<timestamp>.md` | `dossier.py` / `main.py` | `REPORT_DIR` |
-| `summary_<timestamp>.md` | `summarize.py` | `$DATA_STORAGE_PATH/summaries/` |
+| `summary_<timestamp>.md` | `summarize.py` | `$DATA_DIR/summaries/` |
 | `audit_active_verdicts_report.md` | `scripts/audit_active_verdicts.py` | project root |
 | `dsr_report.md` | `scripts/compute_dsr.py` | project root |
 | `lookback_sensitivity_report.md` | `scripts/lookback_sensitivity.py` | project root |
