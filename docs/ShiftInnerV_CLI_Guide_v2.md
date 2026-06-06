@@ -15,7 +15,7 @@ python shiftinnerv/pipelines/generate_pairs.py --random 100 --lookback 3
 python sentinel.py
 
 # 3. Check verdicts
-sqlite3 ~/Projects/ShiftInnerV_Data/trial_ledger.db "SELECT * FROM trial_ledger WHERE is_closed=0"
+sqlite3 ~/Projects/ShiftInnerV/data/trial_ledger.db "SELECT * FROM trial_ledger WHERE is_closed=0"
 ```
 
 ---
@@ -280,7 +280,7 @@ Configure in `~/.shiftinnerv_env`:
 DATA_DIR=~/Projects/ShiftInnerV/data
 
 # Report output directory
-REPORT_DIR=~/Projects/ShiftInnerV_Data/reports
+REPORT_DIR=~/Projects/ShiftInnerV/data/reports
 
 # API keys
 TIINGO_KEY=your_tiingo_api_key_here
@@ -316,11 +316,11 @@ Query examples:
 
 ```bash
 # Show all ACTIVE verdicts
-sqlite3 ~/Projects/ShiftInnerV_Data/trial_ledger.db \
+sqlite3 ~/Projects/ShiftInnerV/data/trial_ledger.db \
   "SELECT ticker1, ticker2, entry_z_verdict, snr, half_life FROM trial_ledger WHERE is_closed=0"
 
 # Show screening results from last 7 days
-sqlite3 ~/Projects/ShiftInnerV_Data/anomalies.db \
+sqlite3 ~/Projects/ShiftInnerV/data/anomalies.db \
   "SELECT ticker1, ticker2, score, snr, half_life FROM screening_results 
    WHERE timestamp >= datetime('now', '-7 days') ORDER BY score DESC LIMIT 20"
 ```
@@ -357,7 +357,7 @@ python shiftinnerv/pipelines/monitor.py \
   --workers 10
 
 # 3. Check results
-sqlite3 ~/Projects/ShiftInnerV_Data/anomalies.db \
+sqlite3 ~/Projects/ShiftInnerV/data/anomalies.db \
   "SELECT ticker1, ticker2, score, snr, half_life FROM screening_results 
    ORDER BY timestamp DESC, score DESC LIMIT 20"
 
@@ -375,7 +375,7 @@ python main.py --pairs compositions/promoted_20260521_1456.yaml
 python shiftinnerv/pipelines/dossier.py LMT NOC --lookback 180
 
 # View report
-cat ~/Projects/ShiftInnerV_Data/reports/dossier_LMT_NOC_20260521.md
+cat ~/Projects/ShiftInnerV/data/reports/dossier_LMT_NOC_20260521.md
 ```
 
 ---
@@ -393,7 +393,7 @@ launchctl load ~/Library/LaunchAgents/com.shiftinnerv.sentinel.plist
 launchctl list | grep shiftinnerv
 
 # View logs
-tail -f ~/Projects/ShiftInnerV_Data/sentinel.log
+tail -f ~/Projects/ShiftInnerV/data/sentinel.log
 ```
 
 ### Linux (cron)
@@ -403,7 +403,7 @@ tail -f ~/Projects/ShiftInnerV_Data/sentinel.log
 crontab -e
 
 # Add entry (runs every 4 hours)
-0 */4 * * * cd /path/to/ShiftInnerV && /path/to/python sentinel.py --promoted >> ~/Projects/ShiftInnerV_Data/cron.log 2>&1
+0 */4 * * * cd /path/to/ShiftInnerV && /path/to/python sentinel.py --promoted >> ~/Projects/ShiftInnerV/data/cron.log 2>&1
 ```
 
 ---

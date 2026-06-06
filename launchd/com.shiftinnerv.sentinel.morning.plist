@@ -29,9 +29,9 @@
 
     <!-- Stdout and stderr go to the sentinel log -->
     <key>StandardOutPath</key>
-    <string>/Volumes/Elessar/ShiftInnerV_Data/sentinel_launchd.log</string>
+    <string>/Volumes/Elessar/ShiftInnerV/data/sentinel_launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Volumes/Elessar/ShiftInnerV_Data/sentinel_launchd.log</string>
+    <string>/Volumes/Elessar/ShiftInnerV/data/sentinel_launchd.log</string>
 
     <!-- Working directory — project root -->
     <key>WorkingDirectory</key>

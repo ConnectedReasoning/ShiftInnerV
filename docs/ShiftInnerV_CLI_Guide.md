@@ -12,7 +12,7 @@ All scripts read from `~/.shiftinnerv_env`. Critical keys:
 
 | Variable | Used By | Default |
 |---|---|---|
-| `DATA_DIR` | All scripts | `~/Projects/ShiftInnerV_Data` |
+| `DATA_DIR` | All scripts | `/Users/manuel/projects/github/ShiftInnerV/data` |
 | `TIINGO_KEY` | `monitor.py`, `dossier.py`, audit scripts | *(required for price data)* |
 | `ANTHROPIC_API_KEY` | `summarize.py` | *(required for AI summaries)* |
 | `REPORT_DIR` | `dossier.py`, `summarize.py`, `sentinel.py` | `$\/reports` |

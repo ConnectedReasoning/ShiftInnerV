@@ -22,9 +22,9 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Volumes/Elessar/ShiftInnerV_Data/ollama.log</string>
+    <string>/Volumes/Elessar/ShiftInnerV/data/ollama.log</string>
     <key>StandardErrorPath</key>
-    <string>/Volumes/Elessar/ShiftInnerV_Data/ollama.log</string>
+    <string>/Volumes/Elessar/ShiftInnerV/data/ollama.log</string>
 
 </dict>
 </plist>

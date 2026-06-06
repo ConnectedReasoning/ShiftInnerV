@@ -127,7 +127,7 @@ This is a complete package containing:
 1. Extract `ShiftInnerV-refactored.zip`
 2. Read `REFACTOR_SUMMARY.md` (understanding)
 3. Run `python sentinel.py`
-4. Check briefing in `~/Projects/ShiftInnerV_Data/reports/`
+4. Check briefing in `/Users/manuel/projects/github/ShiftInnerV/data/reports/`
 
 ### Scenario 2: Understand the Refactor
 1. Skim `QUICK_REFERENCE.md` (5 min overview)

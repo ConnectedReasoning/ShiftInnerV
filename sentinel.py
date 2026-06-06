@@ -25,7 +25,7 @@ Lock file:
     This prevents launchd overlap if a run takes longer than the schedule interval.
 
 Env (from ~/.shiftinnerv_env):
-    DATA_DIR   base data dir (default ~/Projects/ShiftInnerV_Data)
+    DATA_DIR   base data dir (default ~/Projects/ShiftInnerV/data)
     TIINGO_KEY          Tiingo API key
     REPORT_DIR          report output dir
 """

@@ -19,7 +19,7 @@ Usage:
 
 Env (loaded from ~/.shiftinnerv_env — same file as monitor.py):
     TIINGO_KEY          Tiingo API key
-    REPORT_DIR          where to write saved dossiers (default: ~/Projects/ShiftInnerV_Data/reports)
+    REPORT_DIR          where to write saved dossiers (default: /Users/manuel/projects/github/ShiftInnerV/data/reports)
 """
 
 import os
@@ -41,7 +41,7 @@ except ImportError:
 load_dotenv(os.path.expanduser("~/.shiftinnerv_env"))
 
 TIINGO_KEY = os.getenv("TIINGO_KEY", "")
-REPORT_DIR = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV_Data/reports"))
+REPORT_DIR = os.path.expanduser(os.getenv("REPORT_DIR", "~/Projects/ShiftInnerV/data/reports"))
 
 TIINGO_HEADERS = {"Content-Type": "application/json"}
 TIINGO_BASE    = "https://api.tiingo.com"
