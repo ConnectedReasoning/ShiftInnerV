@@ -19,7 +19,7 @@
 #   skew_monitor.py handles this automatically.
 #
 # Run with:
-#   python sentinel.py --universe universe_sp500_skew.yaml
+#   python sentinel.py
 
 lookback_years: 2
 
