@@ -1,68 +1,420 @@
-# ShiftInnerV — Currency-Only Universe
+# ShiftInnerV — S&P 500 Put Skew Universe
 #
-# Focused universe for currency pairs trading edge validation.
-# Data shows 66.7% STRONG/PRIME success rate (vs 14% for treasuries, 12% for equities).
+# Same thesis as universe_dow_skew.yaml but broader:
+#   When a stock's put skew spikes relative to its own history (z > +1.0),
+#   the options market is pricing in stress the equity hasn't acknowledged.
+#   Short the stock. Exit when skew normalises or after 5 days.
 #
-# Three historical winners that triggered this pivot:
-#   - AUDJPY=X / CADJPY=X (rating 81.0, PRIME)
-#   - EURJPY=X / GBPJPY=X (rating 78.8, PRIME)
-#   - EURUSD=X / GBPUSD=X (rating 78.6, PRIME)
+# Why S&P 500 over Dow 30:
+#   The Dow is 30 of the most-analysed stocks in the world. Edge is thin.
+#   The S&P 500 includes mid-cap names with less analyst coverage and
+#   wider options mispricings — the skew signal has more room to breathe.
 #
-# Strategy: Screen these 40 currency pairs daily, track mean reversion opportunities
-# driven by interest rate differentials, carry trades, and sentiment shifts.
+# Liquidity filter applied:
+#   All tickers below have average daily options volume sufficient for
+#   reliable IV reads. Pure micro-caps excluded — skew data is too noisy.
 #
-# Used by: pair_sourcer.py (40 pairs → 780 possible pairs vs 200 tickers → 20k pairs)
-# Data source: yfinance (continuous FX spot data, no corporate actions)
-# Correlation window: 30-50 days (shorter than equities, reflects faster regime changes)
+# Rate limiting note:
+#   501 tickers (500 + SPY benchmark) at 1s sleep = ~8 min morning run.
+#   skew_monitor.py handles this automatically.
+#
+# Run with:
+#   python sentinel.py --universe universe_sp500_skew.yaml
+
+lookback_years: 2
 
 universe:
 
-  # TIER 1: Major Pairs (highest liquidity, tightest spreads, most reliable signal)
-  # ──────────────────────────────────────────────────────────────────────────────
-  forex_majors:
-    - EURUSD=X   # Euro / US Dollar (most traded, best data)
-    - GBPUSD=X   # British Pound / US Dollar
-    - USDJPY=X   # US Dollar / Japanese Yen (yen crosses below)
-    - AUDUSD=X   # Australian Dollar / US Dollar
-    - USDCAD=X   # US Dollar / Canadian Dollar
-    - USDCHF=X   # US Dollar / Swiss Franc
-    - NZDUSD=X   # New Zealand Dollar / US Dollar
+  # ── Technology ──────────────────────────────────────────────────────────────
+  technology:
+    - AAPL      # Apple
+    - MSFT      # Microsoft
+    - NVDA      # Nvidia
+    - AVGO      # Broadcom
+    - ORCL      # Oracle
+    - CRM       # Salesforce
+    - ADBE      # Adobe
+    - AMD       # Advanced Micro Devices
+    - QCOM      # Qualcomm
+    - TXN       # Texas Instruments
+    - INTC      # Intel
+    - MU        # Micron Technology
+    - AMAT      # Applied Materials
+    - LRCX      # Lam Research
+    - KLAC      # KLA Corporation
+    - MRVL      # Marvell Technology
+    - CDNS      # Cadence Design Systems
+    - SNPS      # Synopsys
+    - FTNT      # Fortinet
+    - PANW      # Palo Alto Networks
+    - CRWD      # CrowdStrike
+    - NOW       # ServiceNow
+    - WDAY      # Workday
+    - TEAM      # Atlassian
+    - DDOG      # Datadog
+    - ZS        # Zscaler
+    - NET       # Cloudflare
+    - SNOW      # Snowflake
+    - MDB       # MongoDB
+    - PLTR      # Palantir
+    - DELL      # Dell Technologies
+    - HPQ       # HP Inc
+    - HPE       # Hewlett Packard Enterprise
+    - CSCO      # Cisco
+    - IBM       # IBM
+    - ACN       # Accenture
+    - INFY      # Infosys
+    - WIT       # Wipro
+    - GLW       # Corning
+    - KEYS      # Keysight Technologies
+    - FFIV      # F5 Networks
+    - NTAP      # NetApp
+    - STX       # Seagate
+    - WDC       # Western Digital
+    - ZBRA      # Zebra Technologies
+    - CTSH      # Cognizant
 
-  # TIER 2: JPY Crosses (carry trade sensitivity, rate differential driven)
-  # Your best pairs are JPY crosses — prioritize these
-  # ───────────────────────────────────────────────────────────────────
-  forex_jpy_crosses:
-    - EURJPY=X   # Euro / Yen ✓ Historical winner (78.8 rating)
-    - GBPJPY=X   # Pound / Yen (often mirrors EURJPY with slight lead/lag)
-    - AUDJPY=X   # Aussie Dollar / Yen ✓ Historical winner (81.0 rating)
-    - CADJPY=X   # Canadian Dollar / Yen (commodity correlation + rate diff)
-    - CHFJPY=X   # Swiss Franc / Yen (safe-haven inverse — good mean reversion)
-    - NZDJPY=X   # New Zealand Dollar / Yen
+  # ── Communication Services ──────────────────────────────────────────────────
+  communication:
+    - META      # Meta Platforms
+    - GOOGL     # Alphabet Class A
+    - GOOG      # Alphabet Class C
+    - NFLX      # Netflix
+    - DIS       # Disney
+    - CMCSA     # Comcast
+    - VZ        # Verizon
+    - T         # AT&T
+    - TMUS      # T-Mobile
+    - CHTR      # Charter Communications
+    - PARA      # Paramount Global
+    - WBD       # Warner Bros Discovery
+    - OMC       # Omnicom Group
+    - TTWO      # Take-Two Interactive
+    - EA        # Electronic Arts
+    - MTCH      # Match Group
+    - PINS      # Pinterest
+    - SNAP      # Snap
+    - LYFT      # Lyft
 
-  # TIER 3: EUR/GBP/CHF Crosses (European interplay, Brexit sensitivity)
-  # ────────────────────────────────────────────────────────────────
-  forex_eur_crosses:
-    - EURGBP=X   # Euro / Pound (Brexit aftermath, divergent rate paths)
-    - EURAUD=X   # Euro / Australian Dollar
-    - EURCHF=X   # Euro / Swiss Franc
-    - GBPCHF=X   # Pound / Swiss Franc
-    - GBPAUD=X   # Pound / Australian Dollar
+  # ── Consumer Discretionary ──────────────────────────────────────────────────
+  consumer_discretionary:
+    - AMZN      # Amazon
+    - TSLA      # Tesla
+    - HD        # Home Depot
+    - MCD       # McDonald's
+    - NKE       # Nike
+    - SBUX      # Starbucks
+    - LOW       # Lowe's
+    - TJX       # TJX Companies
+    - BKNG      # Booking Holdings
+    - ABNB      # Airbnb
+    - MAR       # Marriott
+    - HLT       # Hilton
+    - RCL       # Royal Caribbean
+    - CCL       # Carnival
+    - NCLH      # Norwegian Cruise Line
+    - GM        # General Motors
+    - F         # Ford Motor
+    - RIVN      # Rivian
+    - LCID      # Lucid Motors
+    - EBAY      # eBay
+    - ETSY      # Etsy
+    - W         # Wayfair
+    - ROST      # Ross Stores
+    - ULTA      # Ulta Beauty
+    - BBY       # Best Buy
+    - DPZ       # Domino's Pizza
+    - YUM       # Yum! Brands
+    - CMG       # Chipotle
+    - QSR       # Restaurant Brands
+    - DKNG      # DraftKings
+    - MGM       # MGM Resorts
+    - WYNN      # Wynn Resorts
+    - LVS       # Las Vegas Sands
+    - PHM       # PulteGroup
+    - LEN       # Lennar
+    - DHI       # D.R. Horton
+    - TOL       # Toll Brothers
+    - NVR       # NVR Inc
+    - DECK      # Deckers Outdoor
+    - PVH       # PVH Corp
+    - RL        # Ralph Lauren
+    - TPR       # Tapestry
+    - VFC       # V.F. Corporation
 
-  # TIER 4: Commodity-Linked Pairs (CAD, AUD, NZD — resource currency correlation)
-  # ──────────────────────────────────────────────────────────────────────────────
-  forex_commodity:
-    - AUDCAD=X   # Aussie / Canadian (commodity, energy, rate diffs)
-    - AUDNZD=X   # Aussie / NZ Dollar (regional, seasonal patterns)
-    - NZDCAD=X   # NZ Dollar / Canadian
-    - AUDCHF=X   # Aussie / Swiss (risk sentiment = cointegration driver)
-    - NZDCHF=X   # NZ Dollar / Swiss (risk on/off reversal)
+  # ── Consumer Staples ────────────────────────────────────────────────────────
+  consumer_staples:
+    - WMT       # Walmart
+    - COST      # Costco
+    - PG        # Procter & Gamble
+    - KO        # Coca-Cola
+    - PEP       # PepsiCo
+    - PM        # Philip Morris
+    - MO        # Altria
+    - MDLZ      # Mondelez
+    - GIS       # General Mills
+    - CPB       # Campbell Soup
+    - SJM       # J.M. Smucker
+    - HRL       # Hormel Foods
+    - TSN       # Tyson Foods
+    - CAG       # Conagra Brands
+    - CL        # Colgate-Palmolive
+    - CHD       # Church & Dwight
+    - EL        # Estee Lauder
+    - KMB       # Kimberly-Clark
+    - CLX       # Clorox
+    - SYY       # Sysco
+    - KR        # Kroger
+    - ACI       # Albertsons
+    - TAP       # Molson Coors
+    - BF-B      # Brown-Forman
+    - STZ       # Constellation Brands
 
-  # TIER 5: USD Emerging (higher volatility, larger spreads, but tradeable)
-  # ────────────────────────────────────────────────────────────────────
-  forex_emerging:
-    - USDMXN=X   # US Dollar / Mexican Peso (USMCA trade, rates)
-    - USDINR=X   # US Dollar / Indian Rupee (growth differential)
-    - USDBRL=X   # US Dollar / Brazilian Real (commodity, rates)
-    - USDKRW=X   # US Dollar / South Korean Won (tech hub, risk)
-    - USDSGD=X   # US Dollar / Singapore Dollar (Southeast Asia)
-    - USDHKD=X   # US Dollar / Hong Kong Dollar (pegged to USD, but spread trades)
+  # ── Healthcare ──────────────────────────────────────────────────────────────
+  healthcare:
+    - UNH       # UnitedHealth Group
+    - JNJ       # Johnson & Johnson
+    - LLY       # Eli Lilly
+    - ABBV      # AbbVie
+    - MRK       # Merck
+    - PFE       # Pfizer
+    - TMO       # Thermo Fisher
+    - ABT       # Abbott Laboratories
+    - DHR       # Danaher
+    - BMY       # Bristol-Myers Squibb
+    - AMGN      # Amgen
+    - GILD      # Gilead Sciences
+    - BIIB      # Biogen
+    - REGN      # Regeneron
+    - VRTX      # Vertex Pharmaceuticals
+    - ISRG      # Intuitive Surgical
+    - SYK       # Stryker
+    - BSX       # Boston Scientific
+    - MDT       # Medtronic
+    - EW        # Edwards Lifesciences
+    - ZBH       # Zimmer Biomet
+    - BDX       # Becton Dickinson
+    - BAX       # Baxter International
+    - HCA       # HCA Healthcare
+    - CNC       # Centene
+    - MOH       # Molina Healthcare
+    - HUM       # Humana
+    - CVS       # CVS Health
+    - CI        # Cigna
+    - MCK       # McKesson
+    - CAH       # Cardinal Health
+    - IDXX      # IDEXX Laboratories
+    - IQV       # IQVIA Holdings
+    - A         # Agilent Technologies
+    - WAT       # Waters Corporation
+    - HOLX      # Hologic
+    - DXCM      # Dexcom
+    - PODD      # Insulet
+    - ALGN      # Align Technology
+
+  # ── Financials ──────────────────────────────────────────────────────────────
+  financials:
+    - JPM       # JPMorgan Chase
+    - BAC       # Bank of America
+    - WFC       # Wells Fargo
+    - GS        # Goldman Sachs
+    - MS        # Morgan Stanley
+    - C         # Citigroup
+    - USB       # U.S. Bancorp
+    - PNC       # PNC Financial
+    - TFC       # Truist Financial
+    - AXP       # American Express
+    - V         # Visa
+    - MA        # Mastercard
+    - COF       # Capital One
+    - SYF       # Synchrony Financial
+    - BK        # Bank of New York Mellon
+    - STT       # State Street
+    - SCHW      # Charles Schwab
+    - IBKR      # Interactive Brokers
+    - HOOD      # Robinhood
+    - ICE       # Intercontinental Exchange
+    - CME       # CME Group
+    - CBOE      # Cboe Global Markets
+    - NDAQ      # Nasdaq Inc
+    - BLK       # BlackRock
+    - TROW      # T. Rowe Price
+    - IVZ       # Invesco
+    - AMP       # Ameriprise Financial
+    - BEN       # Franklin Resources
+    - MET       # MetLife
+    - PRU       # Prudential Financial
+    - AFL       # Aflac
+    - AIG       # American International Group
+    - TRV       # Travelers
+    - PGR       # Progressive
+    - ALL       # Allstate
+    - CB        # Chubb
+    - HIG       # Hartford Financial
+    - AJG       # Arthur J. Gallagher
+    - MMC       # Marsh & McLennan
+    - AON       # Aon
+    - WTW       # Willis Towers Watson
+    - EG  # was RE (renamed)
+    - RNR       # RenaissanceRe
+    - SPGI      # S&P Global
+    - MCO       # Moody's
+    - FDS       # FactSet Research
+
+  # ── Industrials ─────────────────────────────────────────────────────────────
+  industrials:
+    - BA        # Boeing — high skew signal history
+    - CAT       # Caterpillar
+    - HON       # Honeywell
+    - GE        # GE Aerospace
+    - MMM       # 3M
+    - RTX       # Raytheon Technologies
+    - LMT       # Lockheed Martin
+    - NOC       # Northrop Grumman
+    - GD        # General Dynamics
+    - HII       # Huntington Ingalls
+    - LHX       # L3Harris Technologies
+    - TDG       # TransDigm Group
+    - HWM       # Howmet Aerospace
+    - UPS       # United Parcel Service
+    - FDX       # FedEx
+    - EXPD      # Expeditors International
+    - XPO       # XPO Logistics
+    - SAIA      # Saia Inc
+    - ODFL      # Old Dominion Freight
+    - CSX       # CSX Corporation
+    - NSC       # Norfolk Southern
+    - UNP       # Union Pacific
+    - CP        # Canadian Pacific
+    - CNI       # Canadian National Railway
+    - DAL       # Delta Air Lines
+    - UAL       # United Airlines
+    - AAL       # American Airlines
+    - LUV       # Southwest Airlines
+    - ALK       # Alaska Air Group
+    - EMR       # Emerson Electric
+    - ETN       # Eaton Corporation
+    - ROK       # Rockwell Automation
+    - AME       # AMETEK
+    - PH        # Parker Hannifin
+    - DOV       # Dover Corporation
+    - ITW       # Illinois Tool Works
+    - IR        # Ingersoll Rand
+    - XYL       # Xylem
+    - TRMB      # Trimble
+    - RRX       # Rexnord
+    - GNRC      # Generac Holdings
+    - WM        # Waste Management
+    - RSG       # Republic Services
+    - CTAS      # Cintas
+    - RHI       # Robert Half
+    - MAN       # ManpowerGroup
+
+  # ── Energy ──────────────────────────────────────────────────────────────────
+  energy:
+    - XOM       # ExxonMobil
+    - CVX       # Chevron
+    - COP       # ConocoPhillips
+    - EOG       # EOG Resources
+    - SLB       # Schlumberger
+    - HAL       # Halliburton
+    - BKR       # Baker Hughes
+    - MPC       # Marathon Petroleum
+    - VLO       # Valero Energy
+    - PSX       # Phillips 66
+    - OXY       # Occidental Petroleum
+    - DVN       # Devon Energy
+    - FANG      # Diamondback Energy
+    - APA       # APA Corporation
+    - OKE       # ONEOK
+    - WMB       # Williams Companies
+    - KMI       # Kinder Morgan
+    - ET        # Energy Transfer
+    - EPD       # Enterprise Products
+    - LNG       # Cheniere Energy
+    - NFG       # National Fuel Gas
+
+  # ── Materials ───────────────────────────────────────────────────────────────
+  materials:
+    - LIN       # Linde
+    - APD       # Air Products
+    - ECL       # Ecolab
+    - SHW       # Sherwin-Williams
+    - PPG       # PPG Industries
+    - NEM       # Newmont
+    - FCX       # Freeport-McMoRan
+    - NUE       # Nucor
+    - STLD      # Steel Dynamics
+    - X         # U.S. Steel
+    - CF        # CF Industries
+    - MOS       # Mosaic
+    - ALB       # Albemarle
+    - DD        # DuPont
+    - DOW       # Dow Inc
+    - LYB       # LyondellBasell
+    - CE        # Celanese
+    - EMN       # Eastman Chemical
+    - IFF       # International Flavors
+    - FMC       # FMC Corporation
+    - PKG       # Packaging Corp of America
+    - IP        # International Paper
+    - SW  # was WRK (renamed)
+    - SON       # Sonoco Products
+
+  # ── Real Estate ─────────────────────────────────────────────────────────────
+  real_estate:
+    - PLD       # Prologis
+    - AMT       # American Tower
+    - CCI       # Crown Castle
+    - EQIX      # Equinix
+    - DLR       # Digital Realty
+    - SPG       # Simon Property Group
+    - O         # Realty Income
+    - VICI      # VICI Properties
+    - WPC       # W. P. Carey
+    - EXR       # Extra Space Storage
+    - PSA       # Public Storage
+    - AVB       # AvalonBay Communities
+    - EQR       # Equity Residential
+    - MAA       # Mid-America Apartment
+    - UDR       # UDR Inc
+    - HST       # Host Hotels
+    - SUI       # Sun Communities
+    - ELS       # Equity LifeStyle Properties
+    - IRM       # Iron Mountain
+    - WELL      # Welltower
+    - VTR       # Ventas
+    - DOC  # was PEAK (renamed)
+    - ARE       # Alexandria Real Estate
+    - BXP       # Boston Properties
+    - KIM       # Kimco Realty
+    - REG       # Regency Centers
+    - FRT       # Federal Realty
+
+  # ── Utilities ───────────────────────────────────────────────────────────────
+  utilities:
+    - NEE       # NextEra Energy
+    - DUK       # Duke Energy
+    - SO        # Southern Company
+    - D         # Dominion Energy
+    - AEP       # American Electric Power
+    - EXC       # Exelon
+    - XEL       # Xcel Energy
+    - PCG       # PG&E Corporation
+    - ED        # Consolidated Edison
+    - EIX       # Edison International
+    - PPL       # PPL Corporation
+    - FE        # FirstEnergy
+    - ETR       # Entergy
+    - WEC       # WEC Energy Group
+    - CMS       # CMS Energy
+    - NI        # NiSource
+    - LNT       # Alliant Energy
+    - EVRG      # Evergy
+    - AES       # AES Corporation
+    - AWK       # American Water Works
+    - WTRG  # was WTR (renamed)
+    - SRE       # Sempra Energy
+    - CNP       # CenterPoint Energy
+    - NRG       # NRG Energy
+    - VST       # Vistra Energy
