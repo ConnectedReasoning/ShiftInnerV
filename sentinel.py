@@ -587,7 +587,7 @@ class BriefingStrategy(Strategy):
                 print("THIS IS WHERE THE REPORT IS WRITTEN! == ", report_dir)
                 briefing_path = os.path.join(
                     report_dir,
-                    f"briefing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+                    f"shiftinnerv_briefing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
                 )
                 with open(briefing_path, "w") as f:
                     f.write(briefing)
